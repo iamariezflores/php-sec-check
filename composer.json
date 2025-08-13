@@ -1,0 +1,20 @@
+{
+    "name": "iamariezflores/php-sec-check",
+    "description": "PHP Security Check Tool",
+    "type": "library",
+    "autoload": {
+      "psr-4": {
+          "Aquilinoflores\\PhpSecCheck\\": "src/"
+      }
+    },
+    "bin": [
+        "bin/sec-check"
+    ],
+    "authors": [
+        {
+            "name": "Aquilino Flores",
+            "email": "aries.flores@gmail.com"
+        }
+    ],
+    "require": {}
+}
