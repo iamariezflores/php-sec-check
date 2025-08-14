@@ -13,10 +13,8 @@ Features
 Installation
 
 Via Composer (recommended)
-Once published to https://packagist.org/packages/iamariezflores/php-sec-check
-
-bash
-composer require --dev iamariezflores/php-sec-check
+1. Package is at https://packagist.org/packages/iamariezflores/php-sec-check
+2. Install using composer require --dev iamariezflores/php-sec-check
 
 Contributing
 Pull requests are welcome!
