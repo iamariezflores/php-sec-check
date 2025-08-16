@@ -4,18 +4,21 @@ namespace Aquilinoflores\PhpSecCheck\Checks;
 use Aquilinoflores\PhpSecCheck\Output;
 
 class PhpVersionCheck implements CheckInterface {
-    public function run(): void {
-        echo "[PHP VERSION]\n";
-        $current = phpversion();
-        $latest = '8.3.10';
+    public function run(string $projectRoot): array {
+        $issues = [];
 
-        if(version_compare($current, $latest, '<')) {
-            Output::warn("Outdated PHP version: $current (Latest: $latest)");
+        echo "[PHP VERSION]\n";
+        $version = phpversion();
+        echo "Current PHP version: $version\n";
+
+        if (version_compare($version, '8.0.0', '<')) {
+            $issues[] = "PHP version is outdated: $version (recommend >=8.0)";
+            Output::warn(end($issues));
         } else {
-            Output::ok("PHP version is up-to-date ($current).");
+            Output::ok("PHP version is up-to-date.");
         }
 
         echo "\n";
+        return $issues;
     }
 }
-

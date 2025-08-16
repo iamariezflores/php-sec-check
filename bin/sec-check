@@ -9,8 +9,46 @@ use Aquilinoflores\PhpSecCheck\Checks\{
     DangerousFunctionsCheck
 };
 
+use Aquilinoflores\PhpSecCheck\Checks\Laravel\{
+    EnvCredentialsCheck,
+    VendorCheck
+};
+
+$projectRoot = getcwd();
+
+// Check for config file
+$configFile = $projectRoot . '/php-sec-check-config.php';
+if (!file_exists($configFile)) {
+    echo "No config file found. Creating template php-sec-check-config.php in project root...\n";
+
+    $template = <<<PHP
+<?php
+return [
+    // Add any additional sensitive keys you want to check in your .env
+    'sensitive_keys' => [
+        'APP_KEY',
+        'DB_PASSWORD',
+        'MAIL_PASSWORD',
+        'AWS_SECRET_ACCESS_KEY',
+        'STRIPE_SECRET_KEY',
+    ],
+];
+PHP;
+
+    file_put_contents($configFile, $template);
+    echo "Template config created! You can edit it to add custom keys.\n\n";
+}
+
+// Load config keys
+$customKeys = [];
+if(file_exists($configFile)) {
+    $config = include $configFile;
+    $customKeys = $config['sensitive_keys'] ?? [];
+}
+
 echo "=== PHP Security Check Tool ===\n\n";
 
+// Run generic PHP checks
 $checks = [
     new PhpVersionCheck(),
     new DisplayErrorsCheck(),
@@ -19,8 +57,29 @@ $checks = [
 ];
 
 foreach ($checks as $check) {
-    $check->run();
+    $check->run($projectRoot);
+}
+
+// Detect Laravel
+$isLaravel = file_exists($projectRoot.'/artisan') && file_exists($projectRoot.'/bootstrap/app.php');
+
+if($isLaravel) {
+    echo "Laravel project detected!\n";
+
+    // Run Laravel-specific checks
+    $envCheck = new EnvCredentialsCheck($customKeys);
+    $vendorCheck = new VendorCheck();
+
+    $issues = array_merge(
+        $envCheck->run($projectRoot),
+        $vendorCheck->run($projectRoot)
+    );
+
+    foreach ($issues as $issue) {
+        echo "[WARNING] $issue\n";
+    }
+} else {
+    echo "Generic PHP project detected\n";
 }
 
 echo "Scan complete.\n";
-
