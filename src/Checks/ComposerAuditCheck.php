@@ -4,12 +4,16 @@ namespace Aquilinoflores\PhpSecCheck\Checks;
 use Aquilinoflores\PhpSecCheck\Output;
 
 class ComposerAuditCheck implements CheckInterface {
-    public function run(): void {
+    public function run(string $projectRoot): array {
+        $issues = [];
+
         echo "[COMPOSER DEPENDENCIES]\n";
-        if (!file_exists('composer.lock')) {
+
+        $lockFile = $projectRoot . '/composer.lock';
+        if (!file_exists($lockFile)) {
             Output::info("No composer.lock found. Skipping dependency audit.");
             echo "\n";
-            return;
+            return $issues;
         }
 
         $output = [];
@@ -18,14 +22,18 @@ class ComposerAuditCheck implements CheckInterface {
 
         if (!empty($data['advisories'])) {
             Output::warn("Vulnerable dependencies found:");
-            foreach ($data['advisories'] as $package => $issues) {
-                foreach ($issues as $issue) {
-                    echo "  - $package: {$issue['title']} ({$issue['cve']})\n";
+            foreach ($data['advisories'] as $package => $advisories) {
+                foreach ($advisories as $adv) {
+                    $issueMsg = "$package: {$adv['title']} ({$adv['cve']})";
+                    $issues[] = $issueMsg;
+                    echo "  - $issueMsg\n";
                 }
             }
         } else {
             Output::ok("No known vulnerabilities found in dependencies.");
         }
+
         echo "\n";
+        return $issues;
     }
 }
