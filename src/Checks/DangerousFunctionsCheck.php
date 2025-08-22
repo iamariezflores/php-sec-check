@@ -8,7 +8,19 @@ class DangerousFunctionsCheck implements CheckInterface {
         $issues = [];
 
         echo "[DANGEROUS FUNCTIONS]\n";
-        $dangerous = ['exec', 'shell_exec', 'system', 'passthru', 'eval', 'create_function'];
+        $dangerous = ['exec', 
+                      'shell_exec', 
+                      'system', 
+                      'passthru', 
+                      'eval', 
+                      'create_function',
+                      'proc_open',
+                      'popen',
+                      'curl_exec',
+                      'curl_multi_exec',
+                      'parse_ini_file',
+                      'show_source'
+                    ];
         $disabled = ini_get('disable_functions');
 
         foreach ($dangerous as $fn) {
