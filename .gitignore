@@ -2,3 +2,6 @@
 /vendor/
 
 .env
+
+# Test project
+/Test/
