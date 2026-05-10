@@ -3,9 +3,17 @@
     "description": "PHP Security Check Tool",
     "type": "library",
     "autoload": {
-      "psr-4": {
-          "Aquilinoflores\\PhpSecCheck\\": "src/"
-      }
+        "psr-4": {
+            "Aquilinoflores\\PhpSecCheck\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Aquilinoflores\\PhpSecCheck\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
     },
     "license": "MIT",
     "bin": [
@@ -17,5 +25,7 @@
             "email": "aries.flores@gmail.com"
         }
     ],
-    "require": {}
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    }
 }
