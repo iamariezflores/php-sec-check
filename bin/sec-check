@@ -28,6 +28,8 @@ use Aquilinoflores\PhpSecCheck\Checks\{
 };
 
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\{
+    AppDebugCheck,
+    DefaultCredentialsCheck,
     EnvCredentialsCheck,
     VendorCheck
 };
@@ -87,10 +89,14 @@ if ($isLaravel) {
     echo "Laravel project detected!\n";
 
     // Note: EnvCredentialsCheck reads php-sec-check-config.php internally.
-    $envCheck = new EnvCredentialsCheck();
-    $vendorCheck = new VendorCheck();
+    $appDebugCheck           = new AppDebugCheck();
+    $defaultCredentialsCheck = new DefaultCredentialsCheck();
+    $envCheck                = new EnvCredentialsCheck();
+    $vendorCheck             = new VendorCheck();
 
     $laravelIssues = array_merge(
+        $appDebugCheck->run($projectRoot),
+        $defaultCredentialsCheck->run($projectRoot),
         $envCheck->run($projectRoot),
         $vendorCheck->run($projectRoot)
     );

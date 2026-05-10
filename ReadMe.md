@@ -4,6 +4,7 @@
 
 [![Packagist Version](https://img.shields.io/packagist/v/iamariezflores/php-sec-check)](https://packagist.org/packages/iamariezflores/php-sec-check)
 [![Packagist Downloads](https://img.shields.io/packagist/dt/iamariezflores/php-sec-check)](https://packagist.org/packages/iamariezflores/php-sec-check)
+[![PHP Version](https://img.shields.io/badge/php-%3E%3D8.2-blue)](https://packagist.org/packages/iamariezflores/php-sec-check)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PHPUnit](https://img.shields.io/badge/tested%20with-PHPUnit-blue)](https://phpunit.de)
 
@@ -41,10 +42,17 @@ Auto-detected when `artisan` and `bootstrap/app.php` are present:
 
 | Check | Description |
 |---|---|
+| `APP_DEBUG` Check | Warns if `APP_DEBUG=true`, critical if combined with `APP_ENV=production` |
+| Default Credentials | Warns if `DB_USERNAME` uses a default value (`root`, `admin`, etc.) or `DB_PASSWORD` is empty |
 | `.env` Credentials | Scans for exposed sensitive keys (e.g. `APP_KEY`, `DB_PASSWORD`) |
 | Vendor in Git | Warns if `vendor/` is not excluded in `.gitignore` |
 
 ---
+
+## Requirements
+
+- **PHP >= 8.2**
+- Composer
 
 ## Installation
 
