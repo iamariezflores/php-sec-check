@@ -1,16 +1,19 @@
 # php-sec-check
 
-> A lightweight, zero-dependency CLI tool to scan PHP and Laravel projects for common security risks.
+> A lightweight CLI tool to scan PHP and Laravel projects for common security risks.
 
 [![Packagist Version](https://img.shields.io/packagist/v/iamariezflores/php-sec-check)](https://packagist.org/packages/iamariezflores/php-sec-check)
 [![Packagist Downloads](https://img.shields.io/packagist/dt/iamariezflores/php-sec-check)](https://packagist.org/packages/iamariezflores/php-sec-check)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![PHPUnit](https://img.shields.io/badge/tested%20with-PHPUnit-blue)](https://phpunit.de)
 
 ---
 
 ## Overview
 
 `php-sec-check` is a Composer dev tool that audits your PHP or Laravel project for security misconfigurations and vulnerabilities in seconds. Run it from the command line — no setup required.
+
+The package has **no runtime dependencies**. PHPUnit is included as a dev dependency for running the test suite during development and contributions.
 
 ```bash
 vendor/bin/sec-check
@@ -144,6 +147,18 @@ To add a new check, create a class in `src/Checks/` that implements `CheckInterf
 
 ---
 
+## Running Tests
+
+The test suite uses PHPUnit and covers all PHP and Laravel checks:
+
+```bash
+composer test
+```
+
+Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure.
+
+---
+
 ## Contributing
 
 Contributions are welcome and encouraged!
@@ -151,10 +166,16 @@ Contributions are welcome and encouraged!
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-check-name`
 3. Implement your check in `src/Checks/`, following the `CheckInterface` contract
-4. Commit your changes: `git commit -m "feat: add your-check-name check"`
-5. Push to your fork and open a Pull Request
+4. **Write tests** for your check in the corresponding `tests/Checks/` directory — PRs without tests will not be merged
+5. Verify the full suite passes: `composer test`
+6. Commit your changes: `git commit -m "feat: add your-check-name check"`
+7. Push to your fork and open a Pull Request
 
-Please keep checks modular and focused on a single security concern.
+**Guidelines:**
+- Keep checks modular and focused on a single security concern
+- Every new check class must have a corresponding `*Test.php` file
+- Every bug fix must include a regression test that would have caught the bug
+- Tests must pass before a PR will be reviewed
 
 ---
 
