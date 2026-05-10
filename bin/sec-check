@@ -66,6 +66,8 @@ if(file_exists($configFile)) {
 
 echo "=== PHP Security Check Tool ===\n\n";
 
+$allIssues = [];
+
 // Run generic PHP checks
 $checks = [
     new PhpVersionCheck(),
@@ -75,31 +77,34 @@ $checks = [
 ];
 
 foreach ($checks as $check) {
-    $check->run($projectRoot);
+    $allIssues = array_merge($allIssues, $check->run($projectRoot));
 }
 
 // Detect Laravel
 $isLaravel = file_exists($projectRoot.'/artisan') && file_exists($projectRoot.'/bootstrap/app.php');
 
-if($isLaravel) {
+if ($isLaravel) {
     echo "Laravel project detected!\n";
 
-    // Run Laravel-specific checks
     // Note: EnvCredentialsCheck reads php-sec-check-config.php internally.
-    // $customKeys here is only for programmatic/extended usage on top of config.
     $envCheck = new EnvCredentialsCheck();
     $vendorCheck = new VendorCheck();
 
-    $issues = array_merge(
+    $laravelIssues = array_merge(
         $envCheck->run($projectRoot),
         $vendorCheck->run($projectRoot)
     );
 
-    foreach ($issues as $issue) {
+    foreach ($laravelIssues as $issue) {
         echo "[WARNING] $issue\n";
     }
+
+    $allIssues = array_merge($allIssues, $laravelIssues);
 } else {
     echo "Generic PHP project detected\n";
 }
 
-echo "Scan complete.\n";
+echo "\nScan complete.\n";
+
+// Exit with code 1 if any issues were found so CI pipelines can catch failures.
+exit(empty($allIssues) ? 0 : 1);
