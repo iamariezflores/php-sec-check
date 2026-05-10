@@ -1,6 +1,24 @@
 #!/usr/bin/env php
 <?php
-require __DIR__ . '/../vendor/autoload.php';
+// Resolve autoloader whether running standalone or installed as a Composer dependency
+$autoloadCandidates = [
+    __DIR__ . '/../vendor/autoload.php',   // standalone / local dev
+    __DIR__ . '/../../../autoload.php',    // installed inside a project's vendor/
+];
+
+$autoloaderFound = false;
+foreach ($autoloadCandidates as $candidate) {
+    if (file_exists($candidate)) {
+        require $candidate;
+        $autoloaderFound = true;
+        break;
+    }
+}
+
+if (!$autoloaderFound) {
+    fwrite(STDERR, "Could not find autoloader. Run 'composer install' first.\n");
+    exit(1);
+}
 
 use Aquilinoflores\PhpSecCheck\Checks\{
     PhpVersionCheck,
@@ -67,7 +85,9 @@ if($isLaravel) {
     echo "Laravel project detected!\n";
 
     // Run Laravel-specific checks
-    $envCheck = new EnvCredentialsCheck($customKeys);
+    // Note: EnvCredentialsCheck reads php-sec-check-config.php internally.
+    // $customKeys here is only for programmatic/extended usage on top of config.
+    $envCheck = new EnvCredentialsCheck();
     $vendorCheck = new VendorCheck();
 
     $issues = array_merge(
