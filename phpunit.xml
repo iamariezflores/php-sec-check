@@ -15,6 +15,9 @@
         <testsuite name="Laravel Checks">
             <directory>tests/Checks/Laravel</directory>
         </testsuite>
+        <testsuite name="Programmatic Usage">
+            <directory>tests/Integration</directory>
+        </testsuite>
     </testsuites>
 
     <source>
