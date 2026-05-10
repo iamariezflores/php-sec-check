@@ -66,6 +66,8 @@ From your project root, run:
 vendor/bin/sec-check
 ```
 
+The tool exits with **code `0`** when no issues are found, and **code `1`** when any issue is detected. This makes it compatible with any CI/CD pipeline out of the box.
+
 ### Example Output
 
 ```
@@ -90,6 +92,47 @@ Laravel project detected!
 [WARNING] vendor/ directory exists and is not ignored in .gitignore!
 
 Scan complete.
+```
+
+### CI/CD Integration
+
+Because `sec-check` exits with code `1` on any finding, you can drop it directly into your pipeline and it will **fail the build** automatically when issues are detected.
+
+**GitHub Actions:**
+
+```yaml
+name: Security Check
+
+on: [push, pull_request]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: composer install --no-interaction
+
+      - name: Run security check
+        run: vendor/bin/sec-check
+```
+
+**GitLab CI:**
+
+```yaml
+security-check:
+  stage: test
+  script:
+    - composer install --no-interaction
+    - vendor/bin/sec-check
+```
+
+**Makefile / Shell script:**
+
+```bash
+composer install --no-interaction
+vendor/bin/sec-check || exit 1
 ```
 
 ---
