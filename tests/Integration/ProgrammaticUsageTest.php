@@ -7,6 +7,7 @@ use Aquilinoflores\PhpSecCheck\Checks\ComposerAuditCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DangerousFunctionsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DisplayErrorsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\PhpVersionCheck;
+use Aquilinoflores\PhpSecCheck\Checks\UnsafeFunctionUsageCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\AppDebugCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\DefaultCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
@@ -81,6 +82,7 @@ class ProgrammaticUsageTest extends TestCase
             'DisplayErrorsCheck'      => [new DisplayErrorsCheck()],
             'ComposerAuditCheck'      => [new ComposerAuditCheck()],
             'DangerousFunctionsCheck' => [new DangerousFunctionsCheck()],
+            'UnsafeFunctionUsageCheck'=> [new UnsafeFunctionUsageCheck()],
             'EnvCredentialsCheck'     => [new EnvCredentialsCheck()],
             'VendorCheck'             => [new VendorCheck()],
             'AppDebugCheck'           => [new AppDebugCheck()],
@@ -99,6 +101,7 @@ class ProgrammaticUsageTest extends TestCase
             new DisplayErrorsCheck(),
             new ComposerAuditCheck(),
             new DangerousFunctionsCheck(),
+            new UnsafeFunctionUsageCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
             new AppDebugCheck(),
@@ -122,6 +125,7 @@ class ProgrammaticUsageTest extends TestCase
             new PhpVersionCheck(),
             new DisplayErrorsCheck(),
             new DangerousFunctionsCheck(''),
+            new UnsafeFunctionUsageCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
         ];
@@ -244,21 +248,24 @@ PHP);
             $this->tempDir
         );
 
-        $reported = array_map(
-            fn(Issue $issue) => str_replace('Dangerous function enabled: ', '', $issue->message),
-            $results
-        );
+        $reported = [];
+        foreach ($results as $issue) {
+            if (preg_match("/'([^']+)'/", $issue->message, $m)) {
+                $reported[] = $m[1];
+            }
+        }
 
         $this->assertNotContains('exec', $reported);
         $this->assertNotContains('shell_exec', $reported);
         $this->assertNotContains('system', $reported);
-        $this->assertContains('eval', $reported);
+        $this->assertNotContains('eval', $reported);
+        $this->assertNotContains('curl_exec', $reported);
         $this->assertContains('proc_open', $reported);
     }
 
     public function test_dangerous_functions_check_with_all_functions_disabled(): void
     {
-        $allDisabled = implode(',', DangerousFunctionsCheck::DANGEROUS_FUNCTIONS);
+        $allDisabled = implode(',', DangerousFunctionsCheck::DISABLE_CANDIDATES);
 
         $results = $this->runSilently(new DangerousFunctionsCheck($allDisabled), $this->tempDir);
 

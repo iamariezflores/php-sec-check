@@ -11,6 +11,10 @@
             <file>tests/Checks/DisplayErrorsCheckTest.php</file>
             <file>tests/Checks/ComposerAuditCheckTest.php</file>
             <file>tests/Checks/DangerousFunctionsCheckTest.php</file>
+            <file>tests/Checks/UnsafeFunctionUsageCheckTest.php</file>
+        </testsuite>
+        <testsuite name="Scan">
+            <directory>tests/Scan</directory>
         </testsuite>
         <testsuite name="Laravel Checks">
             <directory>tests/Checks/Laravel</directory>
