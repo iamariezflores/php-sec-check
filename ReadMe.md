@@ -44,7 +44,7 @@ Auto-detected when `artisan` and `bootstrap/app.php` are present:
 |---|---|
 | `APP_DEBUG` Check | Warns if `APP_DEBUG=true`, critical if combined with `APP_ENV=production` |
 | Default Credentials | Warns if `DB_USERNAME` uses a default value (`root`, `admin`, etc.) or `DB_PASSWORD` is empty |
-| `.env` Credentials | Scans for exposed sensitive keys (e.g. `APP_KEY`, `DB_PASSWORD`) |
+| `.env` Credentials | Flags `.env` tracked by git, web-accessible copies, weak/empty credentials, and real secrets in `.env.example` — not a normally configured `.env` |
 | Vendor in Git | Warns if `vendor/` is not excluded in `.gitignore` |
 
 ### Severity Levels
@@ -114,8 +114,8 @@ vendor/bin/sec-check --format=json
             "check": "DangerousFunctionsCheck"
         },
         {
-            "severity": "WARN",
-            "message": "Sensitive key 'APP_KEY' found in .env with value like 'base****'",
+            "severity": "CRITICAL",
+            "message": ".env is listed in ignore rules but is still tracked. Remove it from the index with `git rm --cached .env`.",
             "check": "EnvCredentialsCheck"
         }
     ]
@@ -201,7 +201,7 @@ vendor/bin/sec-check --format=json > security-report.json
 
 ## Configuration
 
-On first run, `php-sec-check` automatically creates a `php-sec-check-config.php` file at your project root. Edit this file to add your own sensitive `.env` key names:
+On first run, `php-sec-check` automatically creates a `php-sec-check-config.php` file at your project root. These key names are used to detect **weak values** in `.env` and **real secrets copied into `.env.example`**. A filled `APP_KEY` or `DB_PASSWORD` in `.env` is normal Laravel configuration and is not flagged.
 
 ```php
 <?php

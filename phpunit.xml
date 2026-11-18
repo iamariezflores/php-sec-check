@@ -18,6 +18,9 @@
         <testsuite name="Programmatic Usage">
             <directory>tests/Integration</directory>
         </testsuite>
+        <testsuite name="Git">
+            <directory>tests/Git</directory>
+        </testsuite>
     </testsuites>
 
     <source>
