@@ -51,7 +51,8 @@ if (!file_exists($configFile)) {
     $template = <<<PHP
 <?php
 return [
-    // Add any additional sensitive keys you want to check in your .env
+    // Keys scanned for weak/empty values and for accidental secrets in .env.example.
+    // A normally configured .env is expected and is not flagged.
     'sensitive_keys' => [
         'APP_KEY',
         'DB_PASSWORD',

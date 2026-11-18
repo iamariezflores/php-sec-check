@@ -194,21 +194,21 @@ class ProgrammaticUsageTest extends TestCase
     // EnvCredentialsCheck — custom key injection
     // -------------------------------------------------------------------------
 
-    public function test_env_check_with_custom_keys_injected(): void
+    public function test_env_check_does_not_flag_normal_custom_secrets(): void
     {
-        file_put_contents($this->tempDir . '/.env', "MY_API_TOKEN=supersecrettoken\n");
+        file_put_contents($this->tempDir . '/.env', "MY_API_TOKEN=supersecrettoken\nAPP_KEY=base64:SomeSuperSecretKeyHere=\n");
 
         $results = $this->runSilently(new EnvCredentialsCheck(['MY_API_TOKEN']), $this->tempDir);
 
-        $this->assertCount(1, $results);
-        $this->assertInstanceOf(Issue::class, $results[0]);
-        $this->assertStringContainsString("'MY_API_TOKEN'", $results[0]->message);
+        $this->assertEmpty($results, 'A configured custom secret in .env is expected, not a finding.');
     }
 
-    public function test_env_check_custom_keys_merged_with_config_keys(): void
+    public function test_env_check_custom_keys_used_for_example_leaks_and_weak_values(): void
     {
-        file_put_contents($this->tempDir . '/.env',
-            "STRIPE_SECRET_KEY=sk_live_abc\nMY_CUSTOM_KEY=somevalue\n"
+        file_put_contents($this->tempDir . '/.env', "MY_CUSTOM_KEY=password\n");
+        file_put_contents(
+            $this->tempDir . '/.env.example',
+            "STRIPE_SECRET_KEY=sk_live_51ABCDEFGH1234567890\n"
         );
         file_put_contents($this->tempDir . '/php-sec-check-config.php', <<<'PHP'
 <?php
@@ -219,17 +219,14 @@ PHP);
 
         $this->assertCount(2, $results);
 
-        $keys = array_map(
-            fn($r) => preg_match("/'([^']+)'/", $r->message, $m) ? $m[1] : '',
-            $results
-        );
-        $this->assertContains('STRIPE_SECRET_KEY', $keys);
-        $this->assertContains('MY_CUSTOM_KEY', $keys);
+        $messages = array_map(fn(Issue $r) => $r->message, $results);
+        $this->assertTrue((bool) array_filter($messages, fn($m) => str_contains($m, 'MY_CUSTOM_KEY')));
+        $this->assertTrue((bool) array_filter($messages, fn($m) => str_contains($m, 'STRIPE_SECRET_KEY')));
     }
 
-    public function test_env_check_returns_empty_when_no_sensitive_values_set(): void
+    public function test_env_check_returns_empty_when_secrets_are_normally_configured(): void
     {
-        file_put_contents($this->tempDir . '/.env', "APP_KEY=null\nDB_PASSWORD=\n");
+        file_put_contents($this->tempDir . '/.env', "APP_KEY=base64:SomeSuperSecretKeyHere=\nDB_PASSWORD=correct-horse-battery\n");
 
         $results = $this->runSilently(new EnvCredentialsCheck(['APP_KEY', 'DB_PASSWORD']), $this->tempDir);
 

@@ -78,20 +78,18 @@ class ExitCodeTest extends TestCase
     // Exit code 1 — issues found
     // -------------------------------------------------------------------------
 
-    public function test_exits_one_when_env_credentials_found(): void
+    public function test_exits_one_when_env_is_publicly_accessible(): void
     {
-        // Simulate a Laravel project with sensitive keys in .env
         touch($this->tempDir . '/artisan');
         mkdir($this->tempDir . '/bootstrap', 0777, true);
+        mkdir($this->tempDir . '/public', 0777, true);
         file_put_contents($this->tempDir . '/bootstrap/app.php', '<?php return new class {};');
         file_put_contents($this->tempDir . '/.env', "APP_KEY=base64:SomeSuperSecretKey=\n");
-        file_put_contents($this->tempDir . '/php-sec-check-config.php',
-            "<?php return ['sensitive_keys' => ['APP_KEY']];"
-        );
+        file_put_contents($this->tempDir . '/public/.env', "APP_KEY=base64:SomeSuperSecretKey=\n");
 
         $exitCode = $this->runSecCheck($this->tempDir);
 
-        $this->assertSame(1, $exitCode, 'Should exit 1 when sensitive .env keys are detected.');
+        $this->assertSame(1, $exitCode, 'Should exit 1 when .env is web-accessible.');
     }
 
     public function test_exits_one_when_vendor_not_in_gitignore(): void

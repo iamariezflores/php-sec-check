@@ -44,8 +44,22 @@ Auto-detected when `artisan` and `bootstrap/app.php` are present:
 |---|---|
 | `APP_DEBUG` Check | Warns if `APP_DEBUG=true`, critical if combined with `APP_ENV=production` |
 | Default Credentials | Warns if `DB_USERNAME` uses a default value (`root`, `admin`, etc.) or `DB_PASSWORD` is empty |
-| `.env` Credentials | Scans for exposed sensitive keys (e.g. `APP_KEY`, `DB_PASSWORD`) |
+| `.env` Credentials | Flags leaked or mis-tracked env files, weak credentials, and secrets in `.env.example` — not a normally configured `.env` |
 | Vendor in Git | Warns if `vendor/` is not excluded in `.gitignore` |
+
+A filled `APP_KEY` or `DB_PASSWORD` in `.env` is expected Laravel configuration and is **not** reported. The check looks for real exposure instead:
+
+| Finding | Severity |
+|---|---|
+| `.env` (or `.env.local`, `.env.production`, …) is **tracked by git** | `CRITICAL` |
+| `.env` is listed in `.gitignore` but **still in the index** | `CRITICAL` — run `git rm --cached .env` |
+| `.env` exists and is **not ignored** | `WARN` |
+| `public/.env` or `.env` next to a root `index.php` | `CRITICAL` |
+| Weak values such as `DB_PASSWORD=password` | `WARN` |
+| Empty `APP_KEY` | `WARN` |
+| `.env.example` contains a real-looking secret | `CRITICAL` |
+
+Git exclusion is verified with `git ls-files` and `git check-ignore --no-index`, not by searching `.gitignore` for the string `.env`. A file that was committed before the ignore rule was added is still treated as tracked.
 
 ### Severity Levels
 
@@ -114,8 +128,8 @@ vendor/bin/sec-check --format=json
             "check": "DangerousFunctionsCheck"
         },
         {
-            "severity": "WARN",
-            "message": "Sensitive key 'APP_KEY' found in .env with value like 'base****'",
+            "severity": "CRITICAL",
+            "message": ".env is listed in ignore rules but is still tracked by git. Remove it from the index with `git rm --cached .env`.",
             "check": "EnvCredentialsCheck"
         }
     ]
@@ -143,9 +157,17 @@ The JSON format is designed for downstream integrations — Slack bots, custom d
 [WARN] Dangerous function enabled: shell_exec
 
 Laravel project detected!
-[CRITICAL] APP_DEBUG is enabled while APP_ENV is set to "production".
+[APP DEBUG]
+[CRITICAL] APP_DEBUG is enabled while APP_ENV is set to "production". This exposes stack traces and environment data to end users.
+
+[DEFAULT CREDENTIALS]
 [WARN] DB_USERNAME is set to 'root'. Using default database usernames is a security risk.
 [CRITICAL] DB_PASSWORD is empty or null. A database without a password is a critical security risk.
+
+[ENV CREDENTIALS]
+[CRITICAL] .env is listed in ignore rules but is still tracked by git. Remove it from the index with `git rm --cached .env`.
+[CRITICAL] public/.env exists and is inside a web-accessible directory. Move secrets out of the document root.
+[CRITICAL] .env.example contains what looks like a real secret for 'APP_KEY' (value like 'base****'). Template files must not include live credentials.
 
 Scan complete.
 ```
@@ -201,7 +223,7 @@ vendor/bin/sec-check --format=json > security-report.json
 
 ## Configuration
 
-On first run, `php-sec-check` automatically creates a `php-sec-check-config.php` file at your project root. Edit this file to add your own sensitive `.env` key names:
+On first run, `php-sec-check` automatically creates a `php-sec-check-config.php` file at your project root. Add extra key names here if you store secrets under custom env keys. Those names are used to detect **weak values** in `.env` and **live secrets copied into `.env.example`**. They are not used to flag a normally configured `.env`.
 
 ```php
 <?php
@@ -303,7 +325,7 @@ The test suite uses PHPUnit and covers all PHP and Laravel checks:
 composer test
 ```
 
-Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Integration tests for programmatic usage and exit codes are in `tests/Integration/`.
+Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Git working-tree helpers are covered in `tests/Git/`. Integration tests for programmatic usage, JSON output, and exit codes are in `tests/Integration/`.
 
 ---
 

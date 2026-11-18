@@ -154,18 +154,23 @@ class JsonOutputTest extends TestCase
         $this->assertSame($summary['total'], $summary['critical'] + $summary['warn'] + $summary['info']);
     }
 
-    public function test_json_includes_env_credential_warning(): void
+    public function test_json_includes_env_example_secret_finding(): void
     {
         $this->makeLaravelProject("APP_KEY=base64:SomeSuperSecretKey=\n");
+        file_put_contents(
+            $this->tempDir . '/.env.example',
+            "APP_KEY=base64:ThisIsARealLookingApplicationKey=\n"
+        );
 
         $result = $this->runSecCheck($this->tempDir);
         $issues = $result['json']['issues'] ?? [];
 
-        $envIssues = array_filter($issues, fn($i) => $i['check'] === 'EnvCredentialsCheck');
+        $envIssues = array_values(array_filter($issues, fn($i) => $i['check'] === 'EnvCredentialsCheck'));
 
-        $this->assertNotEmpty($envIssues, 'JSON output should include the APP_KEY finding.');
-        $this->assertSame('WARN', array_values($envIssues)[0]['severity']);
-        $this->assertStringContainsString('APP_KEY', array_values($envIssues)[0]['message']);
+        $this->assertNotEmpty($envIssues, 'JSON output should include the .env.example leak.');
+        $this->assertSame('CRITICAL', $envIssues[0]['severity']);
+        $this->assertStringContainsString('.env.example', $envIssues[0]['message']);
+        $this->assertStringContainsString('APP_KEY', $envIssues[0]['message']);
     }
 
     public function test_json_marks_production_debug_as_critical(): void
