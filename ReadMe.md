@@ -32,10 +32,23 @@ These run on **any** PHP project:
 | PHP Version | Warns if your PHP version is below 8.0 |
 | Display Errors | Detects if `display_errors` is enabled (exposes stack traces in production) |
 | Composer Audit | Runs `composer audit` to surface known CVEs in your dependencies |
-| Dangerous Functions | Checks if high-risk functions are unrestricted in `php.ini` |
+| Dangerous Functions | Configuration: whether shell-execution functions are listed in `disable_functions` |
+| Unsafe Function Usage | Source: whether risky functions are used in application PHP, and whether they receive untrusted input |
 
-**Dangerous functions checked:**
-`exec`, `shell_exec`, `system`, `passthru`, `eval`, `create_function`, `proc_open`, `popen`, `curl_exec`, `curl_multi_exec`, `parse_ini_file`, `show_source`
+These are separate on purpose. Not every listed PHP function is equally dangerous, and some cannot be disabled via `disable_functions` at all.
+
+**Configuration (`disable_functions`)** — production hardening. `eval()` is a language construct and is not part of this list. `curl_exec()` is a legitimate HTTP helper and is not flagged just because it is enabled.
+
+`exec`, `shell_exec`, `system`, `passthru`, `proc_open`, `popen`
+
+Matching is whole-name only, so `curl_exec` in `disable_functions` does **not** count as disabling `exec`.
+
+**Source usage (`token_get_all()`)** — application PHP, skipping `vendor/`, `node_modules/`, and similar. Full taint / AST analysis is a later step; this pass looks at call sites:
+
+| Call | When it is reported |
+|---|---|
+| `exec`, `shell_exec`, `system`, `passthru`, `proc_open`, `popen`, `eval`, `create_function`, backticks | `WARN` on any use; `CRITICAL` if the arguments include untrusted input (`$_GET`, `$_POST`, `php://input`, …) |
+| `curl_exec`, `curl_multi_exec` | Only if untrusted input reaches the call |
 
 ### Laravel-Specific Checks
 Auto-detected when `artisan` and `bootstrap/app.php` are present:
@@ -124,7 +137,7 @@ vendor/bin/sec-check --format=json
         },
         {
             "severity": "WARN",
-            "message": "Dangerous function enabled: exec",
+            "message": "Shell-execution function 'exec' is not listed in disable_functions. Disable it in production php.ini.",
             "check": "DangerousFunctionsCheck"
         },
         {
@@ -153,8 +166,10 @@ The JSON format is designed for downstream integrations — Slack bots, custom d
 [OK] No known vulnerabilities found in dependencies.
 
 [DANGEROUS FUNCTIONS]
-[WARN] Dangerous function enabled: exec
-[WARN] Dangerous function enabled: shell_exec
+[WARN] Shell-execution function 'exec' is not listed in disable_functions. Disable it in production php.ini.
+
+[UNSAFE FUNCTION USAGE]
+[CRITICAL] exec() receives untrusted input in app/Job.php:12.
 
 Laravel project detected!
 [APP DEBUG]
@@ -252,6 +267,7 @@ All checks return an array of `Issue` objects. Each `Issue` carries a `severity`
 use Aquilinoflores\PhpSecCheck\Issue;
 use Aquilinoflores\PhpSecCheck\Checks\PhpVersionCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DangerousFunctionsCheck;
+use Aquilinoflores\PhpSecCheck\Checks\UnsafeFunctionUsageCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\VendorCheck;
 
@@ -260,6 +276,7 @@ $projectRoot = base_path();
 $checks = [
     new PhpVersionCheck(),
     new DangerousFunctionsCheck(),
+    new UnsafeFunctionUsageCheck(),
     new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
     new VendorCheck(),
 ];
@@ -325,7 +342,7 @@ The test suite uses PHPUnit and covers all PHP and Laravel checks:
 composer test
 ```
 
-Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Git working-tree helpers are covered in `tests/Git/`. Integration tests for programmatic usage, JSON output, and exit codes are in `tests/Integration/`.
+Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Token-scanner tests are in `tests/Scan/`. Git working-tree helpers are covered in `tests/Git/`. Integration tests for programmatic usage, JSON output, and exit codes are in `tests/Integration/`.
 
 ---
 

@@ -26,7 +26,8 @@ use Aquilinoflores\PhpSecCheck\Checks\{
     PhpVersionCheck,
     DisplayErrorsCheck,
     ComposerAuditCheck,
-    DangerousFunctionsCheck
+    DangerousFunctionsCheck,
+    UnsafeFunctionUsageCheck
 };
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\{
     AppDebugCheck,
@@ -77,6 +78,7 @@ $checks = [
     new DisplayErrorsCheck(),
     new ComposerAuditCheck(),
     new DangerousFunctionsCheck(),
+    new UnsafeFunctionUsageCheck(),
 ];
 
 foreach ($checks as $check) {

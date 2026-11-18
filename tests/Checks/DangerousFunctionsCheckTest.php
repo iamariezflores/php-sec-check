@@ -8,6 +8,9 @@ use PHPUnit\Framework\TestCase;
 
 class DangerousFunctionsCheckTest extends TestCase
 {
+    /**
+     * @return list<Issue>
+     */
     private function runSilently(DangerousFunctionsCheck $check): array
     {
         ob_start();
@@ -16,10 +19,18 @@ class DangerousFunctionsCheckTest extends TestCase
         return $result;
     }
 
-    public function test_returns_array(): void
+    /**
+     * @return list<string>
+     */
+    private function reportedFunctions(array $issues): array
     {
-        $result = $this->runSilently(new DangerousFunctionsCheck(''));
-        $this->assertIsArray($result);
+        $names = [];
+        foreach ($issues as $issue) {
+            if (preg_match("/'([^']+)'/", $issue->message, $m)) {
+                $names[] = $m[1];
+            }
+        }
+        return $names;
     }
 
     public function test_returns_issue_objects(): void
@@ -27,6 +38,7 @@ class DangerousFunctionsCheckTest extends TestCase
         $result = $this->runSilently(new DangerousFunctionsCheck(''));
         foreach ($result as $item) {
             $this->assertInstanceOf(Issue::class, $item);
+            $this->assertSame(Issue::WARN, $item->severity);
         }
     }
 
@@ -39,69 +51,50 @@ class DangerousFunctionsCheckTest extends TestCase
         $this->assertStringContainsString('[DANGEROUS FUNCTIONS]', $output);
     }
 
-    public function test_reports_all_twelve_functions_when_none_disabled(): void
+    public function test_reports_only_disable_candidates_when_none_disabled(): void
     {
         $result = $this->runSilently(new DangerousFunctionsCheck(''));
-        $this->assertCount(count(DangerousFunctionsCheck::DANGEROUS_FUNCTIONS), $result);
+        $this->assertCount(count(DangerousFunctionsCheck::DISABLE_CANDIDATES), $result);
+        $this->assertSame(DangerousFunctionsCheck::DISABLE_CANDIDATES, $this->reportedFunctions($result));
     }
 
-    public function test_all_issues_have_warn_severity(): void
+    public function test_does_not_flag_curl_exec_as_a_config_issue(): void
     {
         $result = $this->runSilently(new DangerousFunctionsCheck(''));
-        foreach ($result as $issue) {
-            $this->assertSame(Issue::WARN, $issue->severity);
-        }
-    }
-
-    public function test_issue_message_format(): void
-    {
-        $result = $this->runSilently(new DangerousFunctionsCheck(''));
-        foreach ($result as $issue) {
-            $this->assertStringStartsWith('Dangerous function enabled: ', $issue->message);
-        }
+        $this->assertNotContains('curl_exec', $this->reportedFunctions($result));
+        $this->assertNotContains('curl_multi_exec', $this->reportedFunctions($result));
+        $this->assertNotContains('eval', $this->reportedFunctions($result));
+        $this->assertNotContains('parse_ini_file', $this->reportedFunctions($result));
+        $this->assertNotContains('show_source', $this->reportedFunctions($result));
+        $this->assertNotContains('create_function', $this->reportedFunctions($result));
     }
 
     public function test_disabled_function_is_not_reported(): void
     {
         $result = $this->runSilently(new DangerousFunctionsCheck('exec,shell_exec'));
-
-        $reported = array_map(
-            fn($issue) => str_replace('Dangerous function enabled: ', '', $issue->message),
-            $result
-        );
+        $reported = $this->reportedFunctions($result);
 
         $this->assertNotContains('exec', $reported);
         $this->assertNotContains('shell_exec', $reported);
+        $this->assertContains('system', $reported);
     }
 
-    public function test_reports_only_non_disabled_functions(): void
+    public function test_curl_exec_in_disable_functions_does_not_count_as_exec(): void
     {
-        $result = $this->runSilently(new DangerousFunctionsCheck('exec,eval,system'));
+        $result = $this->runSilently(new DangerousFunctionsCheck('curl_exec,passthru'));
+        $reported = $this->reportedFunctions($result);
 
-        $expectedCount = count(DangerousFunctionsCheck::DANGEROUS_FUNCTIONS) - 3;
-        $this->assertCount($expectedCount, $result);
+        $this->assertContains('exec', $reported, 'Matching must be whole-name, not a substring of curl_exec.');
+        $this->assertNotContains('passthru', $reported);
+        $this->assertNotContains('curl_exec', $reported);
     }
 
-    public function test_returns_empty_when_all_dangerous_functions_disabled(): void
+    public function test_returns_empty_when_all_disable_candidates_are_listed(): void
     {
-        $allDisabled = implode(',', DangerousFunctionsCheck::DANGEROUS_FUNCTIONS);
+        $allDisabled = implode(',', DangerousFunctionsCheck::DISABLE_CANDIDATES);
         $result      = $this->runSilently(new DangerousFunctionsCheck($allDisabled));
 
         $this->assertEmpty($result);
-    }
-
-    public function test_each_dangerous_function_is_individually_detected(): void
-    {
-        $result = $this->runSilently(new DangerousFunctionsCheck(''));
-
-        foreach (DangerousFunctionsCheck::DANGEROUS_FUNCTIONS as $fn) {
-            $messages = array_map(fn($i) => $i->message, $result);
-            $this->assertContains(
-                "Dangerous function enabled: $fn",
-                $messages,
-                "Expected '$fn' to be reported as dangerous when not disabled."
-            );
-        }
     }
 
     public function test_default_constructor_reads_runtime_ini(): void
