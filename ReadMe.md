@@ -35,20 +35,36 @@ These run on **any** PHP project:
 | Dangerous Functions | Configuration: whether shell-execution functions are listed in `disable_functions` |
 | Unsafe Function Usage | Source: whether risky functions are used in application PHP, and whether they receive untrusted input |
 
-These are separate on purpose. Not every listed PHP function is equally dangerous, and some cannot be disabled via `disable_functions` at all.
+#### Dangerous PHP functions
 
-**Configuration (`disable_functions`)** — production hardening. `eval()` is a language construct and is not part of this list. `curl_exec()` is a legitimate HTTP helper and is not flagged just because it is enabled.
+These are **two checks**, on purpose. Not every PHP function is equally dangerous, and some cannot be disabled via `disable_functions` at all.
+
+**1. Configuration (`DangerousFunctionsCheck`)**
+
+Production hardening. Only functions that can actually be listed in `disable_functions` are considered:
 
 `exec`, `shell_exec`, `system`, `passthru`, `proc_open`, `popen`
 
-Matching is whole-name only, so `curl_exec` in `disable_functions` does **not** count as disabling `exec`.
+Not in this list:
 
-**Source usage (`token_get_all()`)** — application PHP, skipping `vendor/`, `node_modules/`, and similar. Full taint / AST analysis is a later step; this pass looks at call sites:
+- `eval()` — language construct; `disable_functions` cannot turn it off
+- `curl_exec()` / `curl_multi_exec()` — legitimate HTTP helpers; presence in php.ini is not a finding
+
+Matching is **whole-name only**. Listing `curl_exec` in `disable_functions` does **not** count as disabling `exec`.
+
+**2. Source usage (`UnsafeFunctionUsageCheck`)**
+
+Scans application `.php` files with `token_get_all()` (a first pass; full taint / AST analysis is later). Skips `vendor/`, `node_modules/`, `.git/`, `storage/framework/`, and `bootstrap/cache/`.
+
+Method calls such as `$pdo->exec()` and function definitions are ignored. `\exec()` (global) is still reported.
 
 | Call | When it is reported |
 |---|---|
-| `exec`, `shell_exec`, `system`, `passthru`, `proc_open`, `popen`, `eval`, `create_function`, backticks | `WARN` on any use; `CRITICAL` if the arguments include untrusted input (`$_GET`, `$_POST`, `php://input`, …) |
-| `curl_exec`, `curl_multi_exec` | Only if untrusted input reaches the call |
+| `exec`, `shell_exec`, `system`, `passthru`, `proc_open`, `popen`, `eval`, `create_function`, backtick shells | `WARN` on any use |
+| Same calls with untrusted input in the argument list | `CRITICAL` |
+| `curl_exec`, `curl_multi_exec` | Only if untrusted input reaches the call — a normal `curl_exec($ch)` is clean |
+
+Untrusted input, for this pass: `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, `$_FILES`, `$_SERVER`, `$argv`, and `php://input`. Nested assignments are not followed yet.
 
 ### Laravel-Specific Checks
 Auto-detected when `artisan` and `bootstrap/app.php` are present:
@@ -124,8 +140,8 @@ vendor/bin/sec-check --format=json
 ```json
 {
     "summary": {
-        "total": 3,
-        "critical": 1,
+        "total": 4,
+        "critical": 2,
         "warn": 2,
         "info": 0
     },
@@ -139,6 +155,11 @@ vendor/bin/sec-check --format=json
             "severity": "WARN",
             "message": "Shell-execution function 'exec' is not listed in disable_functions. Disable it in production php.ini.",
             "check": "DangerousFunctionsCheck"
+        },
+        {
+            "severity": "CRITICAL",
+            "message": "exec() receives untrusted input in app/Job.php:12.",
+            "check": "UnsafeFunctionUsageCheck"
         },
         {
             "severity": "CRITICAL",
@@ -275,8 +296,8 @@ $projectRoot = base_path();
 
 $checks = [
     new PhpVersionCheck(),
-    new DangerousFunctionsCheck(),
-    new UnsafeFunctionUsageCheck(),
+    new DangerousFunctionsCheck(),              // php.ini disable_functions
+    new UnsafeFunctionUsageCheck(),             // token_get_all() source scan
     new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
     new VendorCheck(),
 ];
