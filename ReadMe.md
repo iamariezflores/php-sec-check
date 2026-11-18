@@ -29,11 +29,30 @@ These run on **any** PHP project:
 
 | Check | Description |
 |---|---|
-| PHP Version | Warns if your PHP version is below 8.0 |
+| PHP Version | Compares scanner runtime, `composer.json`, and deploy pins against PHP security-support dates — not a hardcoded 8.0 cutoff |
 | Display Errors | Detects if `display_errors` is enabled (exposes stack traces in production) |
 | Composer Audit | Runs `composer audit` to surface known CVEs in your dependencies |
 | Dangerous Functions | Configuration: whether shell-execution functions are listed in `disable_functions` |
 | Unsafe Function Usage | Source: whether risky functions are used in application PHP, and whether they receive untrusted input |
+
+#### PHP version
+
+The scanner does **not** hardcode “below 8.0”. Local PHP is often newer than production, so it collects several signals and checks them against PHP’s security-support calendar ([supported versions](https://www.php.net/supported-versions.php)):
+
+| Signal | Source |
+|---|---|
+| Scanner runtime | `PHP_VERSION` of the process running `sec-check` |
+| Composer requirement | Lowest version allowed by `composer.json` `require.php` |
+| Composer platform | `config.platform.php` when set |
+| Deploy pin | `.php-version`, `.tool-versions` (`php …`), or `FROM php:X.Y` in a Dockerfile |
+
+| Finding | Severity |
+|---|---|
+| A collected version is **past** security support | `CRITICAL` |
+| Security support ends within 90 days | `WARN` |
+| Scanner minor version **differs** from a deploy pin / `platform.php` | `WARN` |
+
+Unknown newer minors (not yet in the calendar) are treated as supported; unknown older minors are treated as end-of-life.
 
 #### Dangerous PHP functions
 
@@ -178,7 +197,9 @@ The JSON format is designed for downstream integrations — Slack bots, custom d
 === PHP Security Check Tool ===
 
 [PHP VERSION]
-[OK] PHP version is up-to-date.
+Scanner runtime: 8.3.36
+composer.json require.php: >=8.2 (floor 8.2.0)
+[WARN] PHP 8.2 from composer.json require.php is nearing the end of security support. Security support ends 2026-12-31.
 
 [DISPLAY ERRORS]
 [WARN] 'display_errors' is enabled. Disable in production.
@@ -363,7 +384,7 @@ The test suite uses PHPUnit and covers all PHP and Laravel checks:
 composer test
 ```
 
-Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Token-scanner tests are in `tests/Scan/`. Git working-tree helpers are covered in `tests/Git/`. Integration tests for programmatic usage, JSON output, and exit codes are in `tests/Integration/`.
+Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Token-scanner tests are in `tests/Scan/`. PHP support-calendar tests are in `tests/Php/`. Git working-tree helpers are covered in `tests/Git/`. Integration tests for programmatic usage, JSON output, and exit codes are in `tests/Integration/`.
 
 ---
 
