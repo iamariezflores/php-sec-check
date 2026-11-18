@@ -3,6 +3,7 @@
 namespace Aquilinoflores\PhpSecCheck\Checks\Laravel;
 
 use Aquilinoflores\PhpSecCheck\Checks\CheckInterface;
+use Aquilinoflores\PhpSecCheck\Issue;
 use Aquilinoflores\PhpSecCheck\Output;
 use InvalidArgumentException;
 
@@ -42,12 +43,22 @@ class AppDebugCheck implements CheckInterface
         $debugEnabled = in_array($debug, ['true', '1', 'on'], true);
 
         if ($debugEnabled && $env === 'production') {
-            $issues[] = 'APP_DEBUG is enabled while APP_ENV is set to "production". This exposes stack traces and environment data to end users.';
-            Output::warn(end($issues));
+            $issue = new Issue(
+                Issue::CRITICAL,
+                'APP_DEBUG is enabled while APP_ENV is set to "production". This exposes stack traces and environment data to end users.',
+                'AppDebugCheck'
+            );
+            $issues[] = $issue;
+            Output::issue($issue);
         } elseif ($debugEnabled) {
             $envLabel = $env ?? 'unknown';
-            $issues[] = "APP_DEBUG is enabled (APP_ENV={$envLabel}). Ensure this is disabled before deploying to production.";
-            Output::warn(end($issues));
+            $issue = new Issue(
+                Issue::WARN,
+                "APP_DEBUG is enabled (APP_ENV={$envLabel}). Ensure this is disabled before deploying to production.",
+                'AppDebugCheck'
+            );
+            $issues[] = $issue;
+            Output::issue($issue);
         } else {
             Output::ok('APP_DEBUG is not enabled.');
         }

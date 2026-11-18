@@ -20,13 +20,14 @@ if (!$autoloaderFound) {
     exit(1);
 }
 
+use Aquilinoflores\PhpSecCheck\Issue;
+use Aquilinoflores\PhpSecCheck\Output;
 use Aquilinoflores\PhpSecCheck\Checks\{
     PhpVersionCheck,
     DisplayErrorsCheck,
     ComposerAuditCheck,
     DangerousFunctionsCheck
 };
-
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\{
     AppDebugCheck,
     DefaultCredentialsCheck,
@@ -35,6 +36,12 @@ use Aquilinoflores\PhpSecCheck\Checks\Laravel\{
 };
 
 $projectRoot = getcwd();
+$format      = in_array('--format=json', $argv ?? []) ? 'json' : 'text';
+
+// In JSON mode suppress all echoed output — we'll collect and print at the end.
+if ($format === 'json') {
+    ob_start();
+}
 
 // Check for config file
 $configFile = $projectRoot . '/php-sec-check-config.php';
@@ -59,23 +66,16 @@ PHP;
     echo "Template config created! You can edit it to add custom keys.\n\n";
 }
 
-// Load config keys
-$customKeys = [];
-if(file_exists($configFile)) {
-    $config = include $configFile;
-    $customKeys = $config['sensitive_keys'] ?? [];
-}
-
 echo "=== PHP Security Check Tool ===\n\n";
 
 $allIssues = [];
 
-// Run generic PHP checks
+// Generic PHP checks
 $checks = [
     new PhpVersionCheck(),
     new DisplayErrorsCheck(),
     new ComposerAuditCheck(),
-    new DangerousFunctionsCheck()
+    new DangerousFunctionsCheck(),
 ];
 
 foreach ($checks as $check) {
@@ -83,12 +83,11 @@ foreach ($checks as $check) {
 }
 
 // Detect Laravel
-$isLaravel = file_exists($projectRoot.'/artisan') && file_exists($projectRoot.'/bootstrap/app.php');
+$isLaravel = file_exists($projectRoot . '/artisan') && file_exists($projectRoot . '/bootstrap/app.php');
 
 if ($isLaravel) {
     echo "Laravel project detected!\n";
 
-    // Note: EnvCredentialsCheck reads php-sec-check-config.php internally.
     $appDebugCheck           = new AppDebugCheck();
     $defaultCredentialsCheck = new DefaultCredentialsCheck();
     $envCheck                = new EnvCredentialsCheck();
@@ -101,10 +100,6 @@ if ($isLaravel) {
         $vendorCheck->run($projectRoot)
     );
 
-    foreach ($laravelIssues as $issue) {
-        echo "[WARNING] $issue\n";
-    }
-
     $allIssues = array_merge($allIssues, $laravelIssues);
 } else {
     echo "Generic PHP project detected\n";
@@ -112,5 +107,22 @@ if ($isLaravel) {
 
 echo "\nScan complete.\n";
 
-// Exit with code 1 if any issues were found so CI pipelines can catch failures.
+if ($format === 'json') {
+    ob_end_clean();
+
+    $critical = array_filter($allIssues, fn(Issue $i) => $i->severity === Issue::CRITICAL);
+    $warns    = array_filter($allIssues, fn(Issue $i) => $i->severity === Issue::WARN);
+    $infos    = array_filter($allIssues, fn(Issue $i) => $i->severity === Issue::INFO);
+
+    echo json_encode([
+        'summary' => [
+            'total'    => count($allIssues),
+            'critical' => count($critical),
+            'warn'     => count($warns),
+            'info'     => count($infos),
+        ],
+        'issues' => array_map(fn(Issue $i) => $i->toArray(), $allIssues),
+    ], JSON_PRETTY_PRINT) . "\n";
+}
+
 exit(empty($allIssues) ? 0 : 1);
