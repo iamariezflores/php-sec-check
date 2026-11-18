@@ -7,8 +7,11 @@ use Aquilinoflores\PhpSecCheck\Checks\ComposerAuditCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DangerousFunctionsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DisplayErrorsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\PhpVersionCheck;
+use Aquilinoflores\PhpSecCheck\Checks\Laravel\AppDebugCheck;
+use Aquilinoflores\PhpSecCheck\Checks\Laravel\DefaultCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\VendorCheck;
+use Aquilinoflores\PhpSecCheck\Issue;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -74,12 +77,14 @@ class ProgrammaticUsageTest extends TestCase
     public static function allChecksProvider(): array
     {
         return [
-            'PhpVersionCheck'       => [new PhpVersionCheck()],
-            'DisplayErrorsCheck'    => [new DisplayErrorsCheck()],
-            'ComposerAuditCheck'    => [new ComposerAuditCheck()],
+            'PhpVersionCheck'         => [new PhpVersionCheck()],
+            'DisplayErrorsCheck'      => [new DisplayErrorsCheck()],
+            'ComposerAuditCheck'      => [new ComposerAuditCheck()],
             'DangerousFunctionsCheck' => [new DangerousFunctionsCheck()],
-            'EnvCredentialsCheck'   => [new EnvCredentialsCheck()],
-            'VendorCheck'           => [new VendorCheck()],
+            'EnvCredentialsCheck'     => [new EnvCredentialsCheck()],
+            'VendorCheck'             => [new VendorCheck()],
+            'AppDebugCheck'           => [new AppDebugCheck()],
+            'DefaultCredentialsCheck' => [new DefaultCredentialsCheck()],
         ];
     }
 
@@ -89,7 +94,6 @@ class ProgrammaticUsageTest extends TestCase
 
     public function test_all_checks_can_run_together_and_results_merged(): void
     {
-        // This mirrors the pattern shown in the programmatic usage docs.
         $checks = [
             new PhpVersionCheck(),
             new DisplayErrorsCheck(),
@@ -97,6 +101,8 @@ class ProgrammaticUsageTest extends TestCase
             new DangerousFunctionsCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
+            new AppDebugCheck(),
+            new DefaultCredentialsCheck(),
         ];
 
         $allIssues = [];
@@ -110,7 +116,7 @@ class ProgrammaticUsageTest extends TestCase
         $this->assertIsArray($allIssues);
     }
 
-    public function test_merged_results_only_contain_strings(): void
+    public function test_merged_results_only_contain_issue_objects(): void
     {
         $checks = [
             new PhpVersionCheck(),
@@ -129,8 +135,59 @@ class ProgrammaticUsageTest extends TestCase
         ob_end_clean();
 
         foreach ($allIssues as $issue) {
-            $this->assertIsString($issue, 'Every issue in merged results must be a string.');
+            $this->assertInstanceOf(Issue::class, $issue, 'Every item in merged results must be an Issue object.');
         }
+    }
+
+    public function test_issue_severity_is_one_of_the_known_constants(): void
+    {
+        $checks = [
+            new PhpVersionCheck(),
+            new DisplayErrorsCheck(),
+            new DangerousFunctionsCheck(''),
+        ];
+
+        $allIssues = [];
+
+        ob_start();
+        foreach ($checks as $check) {
+            $allIssues = array_merge($allIssues, $check->run($this->tempDir));
+        }
+        ob_end_clean();
+
+        $validSeverities = [Issue::CRITICAL, Issue::WARN, Issue::INFO];
+
+        foreach ($allIssues as $issue) {
+            $this->assertContains(
+                $issue->severity,
+                $validSeverities,
+                "Issue severity '{$issue->severity}' is not a known constant."
+            );
+        }
+    }
+
+    public function test_issue_toArray_contains_required_keys(): void
+    {
+        file_put_contents($this->tempDir . '/.env', "MY_TOKEN=secret\n");
+
+        $issues = $this->runSilently(new EnvCredentialsCheck(['MY_TOKEN']), $this->tempDir);
+
+        $this->assertNotEmpty($issues);
+        $arr = $issues[0]->toArray();
+
+        $this->assertArrayHasKey('severity', $arr);
+        $this->assertArrayHasKey('message', $arr);
+        $this->assertArrayHasKey('check', $arr);
+    }
+
+    public function test_issue_to_string_returns_message(): void
+    {
+        file_put_contents($this->tempDir . '/.env', "MY_TOKEN=secret\n");
+
+        $issues = $this->runSilently(new EnvCredentialsCheck(['MY_TOKEN']), $this->tempDir);
+
+        $this->assertNotEmpty($issues);
+        $this->assertSame($issues[0]->message, (string) $issues[0]);
     }
 
     // -------------------------------------------------------------------------
@@ -141,11 +198,11 @@ class ProgrammaticUsageTest extends TestCase
     {
         file_put_contents($this->tempDir . '/.env', "MY_API_TOKEN=supersecrettoken\n");
 
-        $check = new EnvCredentialsCheck(['MY_API_TOKEN']);
-        $results = $this->runSilently($check, $this->tempDir);
+        $results = $this->runSilently(new EnvCredentialsCheck(['MY_API_TOKEN']), $this->tempDir);
 
         $this->assertCount(1, $results);
-        $this->assertStringContainsString("'MY_API_TOKEN'", $results[0]);
+        $this->assertInstanceOf(Issue::class, $results[0]);
+        $this->assertStringContainsString("'MY_API_TOKEN'", $results[0]->message);
     }
 
     public function test_env_check_custom_keys_merged_with_config_keys(): void
@@ -158,24 +215,23 @@ class ProgrammaticUsageTest extends TestCase
 return ['sensitive_keys' => ['STRIPE_SECRET_KEY']];
 PHP);
 
-        $check = new EnvCredentialsCheck(['MY_CUSTOM_KEY']);
-        $results = $this->runSilently($check, $this->tempDir);
+        $results = $this->runSilently(new EnvCredentialsCheck(['MY_CUSTOM_KEY']), $this->tempDir);
 
         $this->assertCount(2, $results);
 
-        $keys = array_map(fn($r) => preg_match("/'([^']+)'/", $r, $m) ? $m[1] : '', $results);
+        $keys = array_map(
+            fn($r) => preg_match("/'([^']+)'/", $r->message, $m) ? $m[1] : '',
+            $results
+        );
         $this->assertContains('STRIPE_SECRET_KEY', $keys);
         $this->assertContains('MY_CUSTOM_KEY', $keys);
     }
 
-    public function test_env_check_returns_empty_array_when_no_sensitive_values_set(): void
+    public function test_env_check_returns_empty_when_no_sensitive_values_set(): void
     {
-        file_put_contents($this->tempDir . '/.env',
-            "APP_KEY=null\nDB_PASSWORD=\n"
-        );
+        file_put_contents($this->tempDir . '/.env', "APP_KEY=null\nDB_PASSWORD=\n");
 
-        $check = new EnvCredentialsCheck(['APP_KEY', 'DB_PASSWORD']);
-        $results = $this->runSilently($check, $this->tempDir);
+        $results = $this->runSilently(new EnvCredentialsCheck(['APP_KEY', 'DB_PASSWORD']), $this->tempDir);
 
         $this->assertEmpty($results);
     }
@@ -186,21 +242,19 @@ PHP);
 
     public function test_dangerous_functions_check_with_injected_config(): void
     {
-        // Simulates reading disable_functions from a staging server config
-        // rather than the runtime php.ini.
-        $check = new DangerousFunctionsCheck('exec,shell_exec,system');
-        $results = $this->runSilently($check, $this->tempDir);
+        $results = $this->runSilently(
+            new DangerousFunctionsCheck('exec,shell_exec,system'),
+            $this->tempDir
+        );
 
         $reported = array_map(
-            fn($issue) => str_replace('Dangerous function enabled: ', '', $issue),
+            fn(Issue $issue) => str_replace('Dangerous function enabled: ', '', $issue->message),
             $results
         );
 
         $this->assertNotContains('exec', $reported);
         $this->assertNotContains('shell_exec', $reported);
         $this->assertNotContains('system', $reported);
-
-        // Functions not in the injected list should still be flagged.
         $this->assertContains('eval', $reported);
         $this->assertContains('proc_open', $reported);
     }
@@ -209,18 +263,14 @@ PHP);
     {
         $allDisabled = implode(',', DangerousFunctionsCheck::DANGEROUS_FUNCTIONS);
 
-        $check = new DangerousFunctionsCheck($allDisabled);
-        $results = $this->runSilently($check, $this->tempDir);
+        $results = $this->runSilently(new DangerousFunctionsCheck($allDisabled), $this->tempDir);
 
         $this->assertEmpty($results, 'No issues should be reported when all dangerous functions are disabled.');
     }
 
     public function test_dangerous_functions_check_default_reads_runtime_ini(): void
     {
-        // No injection — falls back to php.ini at runtime.
-        $check = new DangerousFunctionsCheck();
-        $results = $this->runSilently($check, $this->tempDir);
-
+        $results = $this->runSilently(new DangerousFunctionsCheck(), $this->tempDir);
         $this->assertIsArray($results);
     }
 
@@ -230,23 +280,19 @@ PHP);
 
     public function test_vendor_check_clean_project_returns_empty(): void
     {
-        // No vendor/ directory present — no issues.
-        $check = new VendorCheck();
-        $results = $this->runSilently($check, $this->tempDir);
-
+        $results = $this->runSilently(new VendorCheck(), $this->tempDir);
         $this->assertEmpty($results);
     }
 
     public function test_vendor_check_flags_uncommitted_vendor_dir(): void
     {
         mkdir($this->tempDir . '/vendor', 0777, true);
-        // No .gitignore — vendor/ is untracked.
 
-        $check = new VendorCheck();
-        $results = $this->runSilently($check, $this->tempDir);
+        $results = $this->runSilently(new VendorCheck(), $this->tempDir);
 
         $this->assertCount(1, $results);
-        $this->assertStringContainsString('vendor/', $results[0]);
+        $this->assertInstanceOf(Issue::class, $results[0]);
+        $this->assertStringContainsString('vendor/', $results[0]->message);
     }
 
     public function test_vendor_check_passes_when_vendor_in_gitignore(): void
@@ -254,9 +300,57 @@ PHP);
         mkdir($this->tempDir . '/vendor', 0777, true);
         file_put_contents($this->tempDir . '/.gitignore', "vendor/\n");
 
-        $check = new VendorCheck();
-        $results = $this->runSilently($check, $this->tempDir);
+        $results = $this->runSilently(new VendorCheck(), $this->tempDir);
+        $this->assertEmpty($results);
+    }
 
+    // -------------------------------------------------------------------------
+    // AppDebugCheck — programmatic usage
+    // -------------------------------------------------------------------------
+
+    public function test_app_debug_check_critical_when_production_debug_on(): void
+    {
+        file_put_contents($this->tempDir . '/.env', "APP_ENV=production\nAPP_DEBUG=true\n");
+
+        $results = $this->runSilently(new AppDebugCheck(), $this->tempDir);
+
+        $this->assertCount(1, $results);
+        $this->assertSame(Issue::CRITICAL, $results[0]->severity);
+        $this->assertSame('AppDebugCheck', $results[0]->check);
+    }
+
+    public function test_app_debug_check_returns_empty_when_debug_off(): void
+    {
+        file_put_contents($this->tempDir . '/.env', "APP_ENV=production\nAPP_DEBUG=false\n");
+
+        $results = $this->runSilently(new AppDebugCheck(), $this->tempDir);
+        $this->assertEmpty($results);
+    }
+
+    // -------------------------------------------------------------------------
+    // DefaultCredentialsCheck — programmatic usage
+    // -------------------------------------------------------------------------
+
+    public function test_default_credentials_check_critical_on_empty_password(): void
+    {
+        file_put_contents($this->tempDir . '/.env',
+            "DB_USERNAME=myapp\nDB_PASSWORD=\nDB_HOST=localhost\n"
+        );
+
+        $results = $this->runSilently(new DefaultCredentialsCheck(), $this->tempDir);
+
+        $passIssues = array_filter($results, fn($i) => str_contains($i->message, 'DB_PASSWORD'));
+        $this->assertNotEmpty($passIssues);
+        $this->assertSame(Issue::CRITICAL, array_values($passIssues)[0]->severity);
+    }
+
+    public function test_default_credentials_check_clean_project(): void
+    {
+        file_put_contents($this->tempDir . '/.env',
+            "DB_USERNAME=appuser\nDB_PASSWORD=str0ngP@ss\nDB_HOST=db.example.com\n"
+        );
+
+        $results = $this->runSilently(new DefaultCredentialsCheck(), $this->tempDir);
         $this->assertEmpty($results);
     }
 
@@ -266,22 +360,18 @@ PHP);
 
     public function test_composer_audit_returns_empty_without_lock_file(): void
     {
-        $check = new ComposerAuditCheck();
-        $results = $this->runSilently($check, $this->tempDir);
-
+        $results = $this->runSilently(new ComposerAuditCheck(), $this->tempDir);
         $this->assertEmpty($results);
     }
 
     public function test_composer_audit_returns_array_with_lock_file_present(): void
     {
         file_put_contents($this->tempDir . '/composer.lock', json_encode([
-            'packages' => [],
+            'packages'     => [],
             'packages-dev' => [],
         ]));
 
-        $check = new ComposerAuditCheck();
-        $results = $this->runSilently($check, $this->tempDir);
-
+        $results = $this->runSilently(new ComposerAuditCheck(), $this->tempDir);
         $this->assertIsArray($results);
     }
 }
