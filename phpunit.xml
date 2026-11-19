@@ -16,6 +16,7 @@
             <file>tests/Checks/SessionSecurityCheckTest.php</file>
             <file>tests/Checks/CookieFlagsCheckTest.php</file>
             <file>tests/Checks/FileUploadCheckTest.php</file>
+            <file>tests/Checks/XssOutputCheckTest.php</file>
         </testsuite>
         <testsuite name="Scan">
             <directory>tests/Scan</directory>
