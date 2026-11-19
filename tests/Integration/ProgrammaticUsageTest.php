@@ -12,6 +12,7 @@ use Aquilinoflores\PhpSecCheck\Checks\DirectoryExposureCheck;
 use Aquilinoflores\PhpSecCheck\Checks\SessionSecurityCheck;
 use Aquilinoflores\PhpSecCheck\Checks\CookieFlagsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\FileUploadCheck;
+use Aquilinoflores\PhpSecCheck\Checks\XssOutputCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\AppDebugCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\DefaultCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
@@ -91,6 +92,7 @@ class ProgrammaticUsageTest extends TestCase
             'SessionSecurityCheck'    => [new SessionSecurityCheck(SessionSecurityCheck::HARDENED_INI)],
             'CookieFlagsCheck'        => [new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI)],
             'FileUploadCheck'         => [new FileUploadCheck()],
+            'XssOutputCheck'          => [new XssOutputCheck()],
             'EnvCredentialsCheck'     => [new EnvCredentialsCheck()],
             'VendorCheck'             => [new VendorCheck()],
             'AppDebugCheck'           => [new AppDebugCheck()],
@@ -114,6 +116,7 @@ class ProgrammaticUsageTest extends TestCase
             new SessionSecurityCheck(SessionSecurityCheck::HARDENED_INI),
             new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI),
             new FileUploadCheck(),
+            new XssOutputCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
             new AppDebugCheck(),
@@ -142,6 +145,7 @@ class ProgrammaticUsageTest extends TestCase
             new SessionSecurityCheck(SessionSecurityCheck::HARDENED_INI),
             new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI),
             new FileUploadCheck(),
+            new XssOutputCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
         ];
@@ -397,6 +401,28 @@ PHP);
         $this->assertSame(Issue::CRITICAL, $results[0]->severity);
         $this->assertSame('FileUploadCheck', $results[0]->check);
         $this->assertStringContainsString('move_uploaded_file()', $results[0]->message);
+    }
+
+    // -------------------------------------------------------------------------
+    // XssOutputCheck — programmatic usage
+    // -------------------------------------------------------------------------
+
+    public function test_xss_output_clean_project_returns_empty(): void
+    {
+        $results = $this->runSilently(new XssOutputCheck(), $this->tempDir);
+        $this->assertEmpty($results);
+    }
+
+    public function test_xss_output_echo_get_is_critical(): void
+    {
+        file_put_contents($this->tempDir . '/view.php', "<?php echo \$_GET['q'];\n");
+
+        $results = $this->runSilently(new XssOutputCheck(), $this->tempDir);
+
+        $this->assertCount(1, $results);
+        $this->assertSame(Issue::CRITICAL, $results[0]->severity);
+        $this->assertSame('XssOutputCheck', $results[0]->check);
+        $this->assertStringContainsString('echo', $results[0]->message);
     }
 
     // -------------------------------------------------------------------------

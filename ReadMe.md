@@ -38,6 +38,7 @@ These run on **any** PHP project:
 | Session Security | php.ini session hardening (`use_strict_mode`, `use_only_cookies`, `use_trans_sid`, SID entropy). Laravel `config/session.php` only when Laravel is detected |
 | Cookie Flags | `setcookie()` / `setrawcookie()` options, `session.cookie_secure` / `httponly` / `samesite`, and Laravel session cookie flags |
 | File Upload | `move_uploaded_file()` destinations that keep the client filename, skip an extension/MIME allow-list, or write under `public/` |
+| XSS Output | `echo` / `print` / `<?=` of `$_GET` / `$_POST` / `$_REQUEST` / `$_COOKIE` without HTML escaping, and Blade `{!! !!}` |
 
 #### PHP version
 
@@ -177,6 +178,24 @@ Saving an upload under `public/` with the original client filename lets an attac
 
 `$_FILES[...]['tmp_name']` is the PHP temp path and is **not** treated as a client filename. `copy()` / `$_FILES` without `move_uploaded_file()` are out of scope on this pass.
 
+#### XSS output
+
+Unescaped user input in HTML is a classic stored/reflected XSS path. This is a first-pass `token_get_all()` + Blade scan — not a DOM XSS engine. Nested assignments are not followed. `vendor/`, `node_modules/`, `.git/`, `storage/framework/`, and `bootstrap/cache/` are skipped.
+
+Untrusted input for this check: `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`.
+
+| Finding | Severity |
+|---|---|
+| `echo $_GET['q']` / `print` / `<?=` of untrusted input | `CRITICAL` |
+| Same output wrapped in `htmlspecialchars`, `htmlentities`, or Laravel `e()` | clean |
+| Blade `{{ $q }}` (auto-escaped) | clean |
+| Blade `{!! $_GET['q'] !!}` | `CRITICAL` |
+| Blade `{!! $q !!}` (raw HTML, no superglobal on this pass) | `WARN` |
+| File sets `Content-Type: application/json` | out of scope (avoids JSON API false positives) |
+| `echo json_encode($_GET)` | out of scope for this pass |
+
+A concatenated mix (`htmlspecialchars($_GET['a']) . $_GET['b']`) is still `CRITICAL` because part of the output is unescaped.
+
 ### Laravel-Specific Checks
 Auto-detected when `artisan` and `bootstrap/app.php` are present. Session **driver/path/encrypt** extras live on **Session Security**; session **cookie flags** live on **Cookie Flags**. Both run only in this case:
 
@@ -251,8 +270,8 @@ vendor/bin/sec-check --format=json
 ```json
 {
     "summary": {
-        "total": 8,
-        "critical": 5,
+        "total": 9,
+        "critical": 6,
         "warn": 3,
         "info": 0
     },
@@ -291,6 +310,11 @@ vendor/bin/sec-check --format=json
             "severity": "CRITICAL",
             "message": "move_uploaded_file() in upload.php:1 writes the client filename into a web-accessible directory.",
             "check": "FileUploadCheck"
+        },
+        {
+            "severity": "CRITICAL",
+            "message": "echo in view.php:2 outputs untrusted input without HTML escaping.",
+            "check": "XssOutputCheck"
         },
         {
             "severity": "CRITICAL",
@@ -336,6 +360,9 @@ composer.json require.php: >=8.2 (floor 8.2.0)
 
 [FILE UPLOAD]
 [CRITICAL] move_uploaded_file() in upload.php:1 writes the client filename into a web-accessible directory.
+
+[XSS OUTPUT]
+[CRITICAL] echo in view.php:2 outputs untrusted input without HTML escaping.
 
 Laravel project detected!
 [APP DEBUG]
@@ -438,6 +465,7 @@ use Aquilinoflores\PhpSecCheck\Checks\DirectoryExposureCheck;
 use Aquilinoflores\PhpSecCheck\Checks\SessionSecurityCheck;
 use Aquilinoflores\PhpSecCheck\Checks\CookieFlagsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\FileUploadCheck;
+use Aquilinoflores\PhpSecCheck\Checks\XssOutputCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\VendorCheck;
 
@@ -451,6 +479,7 @@ $checks = [
     new SessionSecurityCheck(),                 // runtime php.ini; pass an ini map in tests
     new CookieFlagsCheck(),                     // Secure / HttpOnly / SameSite
     new FileUploadCheck(),                      // move_uploaded_file() dest heuristics
+    new XssOutputCheck(),                       // unescaped echo / Blade {!! !!}
     new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
     new VendorCheck(),
 ];
