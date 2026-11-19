@@ -33,7 +33,8 @@ use Aquilinoflores\PhpSecCheck\Checks\{
     CookieFlagsCheck,
     FileUploadCheck,
     XssOutputCheck,
-    SqlInjectionCheck
+    SqlInjectionCheck,
+    UnserializeCheck
 };
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\{
     AppDebugCheck,
@@ -91,6 +92,7 @@ $checks = [
     new FileUploadCheck(),
     new XssOutputCheck(),
     new SqlInjectionCheck(),
+    new UnserializeCheck(),
 ];
 
 foreach ($checks as $check) {
