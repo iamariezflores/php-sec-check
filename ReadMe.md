@@ -37,6 +37,7 @@ These run on **any** PHP project:
 | Directory Exposure | Sensitive files and directories sitting in the document root (`public/`, or a project-root `index.php`) |
 | Session Security | php.ini session hardening (`use_strict_mode`, `use_only_cookies`, `use_trans_sid`, SID entropy). Laravel `config/session.php` only when Laravel is detected |
 | Cookie Flags | `setcookie()` / `setrawcookie()` options, `session.cookie_secure` / `httponly` / `samesite`, and Laravel session cookie flags |
+| File Upload | `move_uploaded_file()` destinations that keep the client filename, skip an extension/MIME allow-list, or write under `public/` |
 
 #### PHP version
 
@@ -162,6 +163,20 @@ Three signals, same first-pass style as the other source scans (`token_get_all()
 
 A third argument that is a **variable** (`setcookie('sid', $id, $opts)`) is skipped on this pass; assignments are not followed. `SameSite=None` is accepted only when Secure is also true.
 
+#### File upload
+
+Saving an upload under `public/` with the original client filename lets an attacker plant executable PHP (or HTML) and request it later. This is a first-pass `token_get_all()` scan of `move_uploaded_file()` destinations — not a full upload pipeline. Nested assignments are not followed. `vendor/`, `node_modules/`, `.git/`, `storage/framework/`, and `bootstrap/cache/` are skipped.
+
+| Finding | Severity |
+|---|---|
+| Destination is under `public/` or `public_path()` **and** uses `$_FILES[...]['name']` | `CRITICAL` |
+| Destination is under `public/` / `public_path()` | `CRITICAL` |
+| Destination uses the client filename (`$_FILES[...]['name']`) | `CRITICAL` |
+| No extension or MIME allow-list in the same file | `WARN` |
+| `storage_path()` (or non-public path) + generated name (`random_bytes` / `bin2hex` / `uniqid`) + allow-list (`in_array` of extensions, `mimes:`, `finfo_*`, `mime_content_type`, `getimagesize`) | clean |
+
+`$_FILES[...]['tmp_name']` is the PHP temp path and is **not** treated as a client filename. `copy()` / `$_FILES` without `move_uploaded_file()` are out of scope on this pass.
+
 ### Laravel-Specific Checks
 Auto-detected when `artisan` and `bootstrap/app.php` are present. Session **driver/path/encrypt** extras live on **Session Security**; session **cookie flags** live on **Cookie Flags**. Both run only in this case:
 
@@ -236,8 +251,8 @@ vendor/bin/sec-check --format=json
 ```json
 {
     "summary": {
-        "total": 7,
-        "critical": 4,
+        "total": 8,
+        "critical": 5,
         "warn": 3,
         "info": 0
     },
@@ -271,6 +286,11 @@ vendor/bin/sec-check --format=json
             "severity": "WARN",
             "message": "setcookie() in login.php:1 is missing Secure, HttpOnly, and SameSite.",
             "check": "CookieFlagsCheck"
+        },
+        {
+            "severity": "CRITICAL",
+            "message": "move_uploaded_file() in upload.php:1 writes the client filename into a web-accessible directory.",
+            "check": "FileUploadCheck"
         },
         {
             "severity": "CRITICAL",
@@ -313,6 +333,9 @@ composer.json require.php: >=8.2 (floor 8.2.0)
 
 [COOKIE FLAGS]
 [WARN] setcookie() in login.php:1 is missing Secure, HttpOnly, and SameSite.
+
+[FILE UPLOAD]
+[CRITICAL] move_uploaded_file() in upload.php:1 writes the client filename into a web-accessible directory.
 
 Laravel project detected!
 [APP DEBUG]
@@ -414,6 +437,7 @@ use Aquilinoflores\PhpSecCheck\Checks\UnsafeFunctionUsageCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DirectoryExposureCheck;
 use Aquilinoflores\PhpSecCheck\Checks\SessionSecurityCheck;
 use Aquilinoflores\PhpSecCheck\Checks\CookieFlagsCheck;
+use Aquilinoflores\PhpSecCheck\Checks\FileUploadCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\VendorCheck;
 
@@ -426,6 +450,7 @@ $checks = [
     new DirectoryExposureCheck(),               // document-root .git / vendor / dumps
     new SessionSecurityCheck(),                 // runtime php.ini; pass an ini map in tests
     new CookieFlagsCheck(),                     // Secure / HttpOnly / SameSite
+    new FileUploadCheck(),                      // move_uploaded_file() dest heuristics
     new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
     new VendorCheck(),
 ];
