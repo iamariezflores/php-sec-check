@@ -136,23 +136,34 @@ Laravel extras run **only** when `artisan` and `bootstrap/app.php` exist. `.env`
 
 #### Cookie flags
 
-Missing `Secure`, `HttpOnly`, or `SameSite` makes session cookies easy to steal or CSRF. This check is separate from **Session security** (trans-sid, strict mode, SID entropy).
+Missing `Secure`, `HttpOnly`, or `SameSite` makes cookies easy to steal (XSS) or send cross-site (CSRF). **Session security** still owns trans-sid, strict mode, and SID entropy. This check owns the flags on the cookie itself.
 
-| Signal | Finding |
+Three signals, same first-pass style as the other source scans (`token_get_all()`, skip `vendor/` / `node_modules/` / `.git/`):
+
+| Signal | What is inspected |
+|---|---|
+| Application source | `setcookie()` and `setrawcookie()` |
+| php.ini / runtime | `session.cookie_httponly`, `session.cookie_secure`, `session.cookie_samesite` |
+| Laravel | `config/session.php` + `.env`, only when `artisan` and `bootstrap/app.php` exist |
+
+| Finding | Severity |
 |---|---|
 | `setcookie('sid', $id)` / `setrawcookie()` with no options array | `WARN` — missing Secure, HttpOnly, and SameSite |
-| `setcookie(..., ['secure' => true, 'httponly' => true, 'samesite' => 'Lax'])` | clean |
+| Options array with `secure => true`, `httponly => true`, `samesite => 'Lax'` (or `Strict`) | clean |
 | Legacy 7-argument `setcookie` with Secure and HttpOnly but no SameSite | `WARN` |
-| `session.cookie_httponly=0` | `CRITICAL` |
-| `session.cookie_secure=0` | `WARN` |
+| `session.cookie_httponly=0` | `CRITICAL` — JavaScript can read the session cookie |
+| `session.cookie_secure=0` | `WARN` — cookie can be sent over HTTP |
 | `session.cookie_samesite` unset | `WARN` |
-| `SameSite=None` without `Secure` | `CRITICAL` |
-| Laravel `http_only => false` or `same_site => null` | `WARN` (only when `artisan` + `bootstrap/app.php` exist) |
+| `SameSite=None` without `Secure` | `CRITICAL` — browsers reject it |
+| Laravel `http_only => false` | `WARN` |
+| Laravel `same_site => null` (or empty) | `WARN` |
+| Laravel `secure` explicitly `false` | `WARN` |
+| Laravel `SESSION_SECURE_COOKIE` unset / null | not a finding — Laravel may enable Secure on HTTPS |
 
-A third argument that is a variable (`setcookie('sid', $id, $opts)`) is skipped on this pass — the scanner does not follow assignments.
+A third argument that is a **variable** (`setcookie('sid', $id, $opts)`) is skipped on this pass; assignments are not followed. `SameSite=None` is accepted only when Secure is also true.
 
 ### Laravel-Specific Checks
-Auto-detected when `artisan` and `bootstrap/app.php` are present. Session cookie/file extras live on the generic **Session Security** check and run only in this case:
+Auto-detected when `artisan` and `bootstrap/app.php` are present. Session **driver/path/encrypt** extras live on **Session Security**; session **cookie flags** live on **Cookie Flags**. Both run only in this case:
 
 | Check | Description |
 |---|---|
@@ -225,9 +236,9 @@ vendor/bin/sec-check --format=json
 ```json
 {
     "summary": {
-        "total": 6,
+        "total": 7,
         "critical": 4,
-        "warn": 2,
+        "warn": 3,
         "info": 0
     },
     "issues": [
@@ -255,6 +266,11 @@ vendor/bin/sec-check --format=json
             "severity": "WARN",
             "message": "session.use_strict_mode is disabled. Enable it so PHP rejects uninitialized session IDs (session fixation).",
             "check": "SessionSecurityCheck"
+        },
+        {
+            "severity": "WARN",
+            "message": "setcookie() in login.php:1 is missing Secure, HttpOnly, and SameSite.",
+            "check": "CookieFlagsCheck"
         },
         {
             "severity": "CRITICAL",
@@ -475,7 +491,7 @@ The test suite uses PHPUnit and covers all PHP and Laravel checks:
 composer test
 ```
 
-Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Token-scanner tests are in `tests/Scan/`. PHP support-calendar tests are in `tests/Php/`. Git working-tree helpers are covered in `tests/Git/`. Directory-exposure and session-security tests are in `tests/Checks/`. Integration tests for programmatic usage, JSON output, and exit codes are in `tests/Integration/`.
+Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Token-scanner tests are in `tests/Scan/`. PHP support-calendar tests are in `tests/Php/`. Git working-tree helpers are covered in `tests/Git/`. Directory-exposure, session-security, and cookie-flags tests are in `tests/Checks/`. Integration tests for programmatic usage, JSON output, and exit codes are in `tests/Integration/`.
 
 ---
 
