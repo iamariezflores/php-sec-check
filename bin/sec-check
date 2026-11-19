@@ -29,7 +29,8 @@ use Aquilinoflores\PhpSecCheck\Checks\{
     DangerousFunctionsCheck,
     UnsafeFunctionUsageCheck,
     DirectoryExposureCheck,
-    SessionSecurityCheck
+    SessionSecurityCheck,
+    CookieFlagsCheck
 };
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\{
     AppDebugCheck,
@@ -83,6 +84,7 @@ $checks = [
     new UnsafeFunctionUsageCheck(),
     new DirectoryExposureCheck(),
     new SessionSecurityCheck(),
+    new CookieFlagsCheck(),
 ];
 
 foreach ($checks as $check) {

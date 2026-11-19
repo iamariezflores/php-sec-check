@@ -10,6 +10,7 @@ use Aquilinoflores\PhpSecCheck\Checks\PhpVersionCheck;
 use Aquilinoflores\PhpSecCheck\Checks\UnsafeFunctionUsageCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DirectoryExposureCheck;
 use Aquilinoflores\PhpSecCheck\Checks\SessionSecurityCheck;
+use Aquilinoflores\PhpSecCheck\Checks\CookieFlagsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\AppDebugCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\DefaultCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
@@ -87,6 +88,7 @@ class ProgrammaticUsageTest extends TestCase
             'UnsafeFunctionUsageCheck'=> [new UnsafeFunctionUsageCheck()],
             'DirectoryExposureCheck'  => [new DirectoryExposureCheck()],
             'SessionSecurityCheck'    => [new SessionSecurityCheck(SessionSecurityCheck::HARDENED_INI)],
+            'CookieFlagsCheck'        => [new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI)],
             'EnvCredentialsCheck'     => [new EnvCredentialsCheck()],
             'VendorCheck'             => [new VendorCheck()],
             'AppDebugCheck'           => [new AppDebugCheck()],
@@ -108,6 +110,7 @@ class ProgrammaticUsageTest extends TestCase
             new UnsafeFunctionUsageCheck(),
             new DirectoryExposureCheck(),
             new SessionSecurityCheck(SessionSecurityCheck::HARDENED_INI),
+            new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI),
             new EnvCredentialsCheck(),
             new VendorCheck(),
             new AppDebugCheck(),
@@ -134,6 +137,7 @@ class ProgrammaticUsageTest extends TestCase
             new UnsafeFunctionUsageCheck(),
             new DirectoryExposureCheck(),
             new SessionSecurityCheck(SessionSecurityCheck::HARDENED_INI),
+            new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI),
             new EnvCredentialsCheck(),
             new VendorCheck(),
         ];
@@ -336,6 +340,34 @@ PHP);
         $this->assertSame(Issue::CRITICAL, $results[0]->severity);
         $this->assertSame('SessionSecurityCheck', $results[0]->check);
         $this->assertStringContainsString('session.use_trans_sid', $results[0]->message);
+    }
+
+    // -------------------------------------------------------------------------
+    // CookieFlagsCheck — programmatic usage
+    // -------------------------------------------------------------------------
+
+    public function test_cookie_flags_hardened_ini_returns_empty(): void
+    {
+        $results = $this->runSilently(
+            new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI),
+            $this->tempDir
+        );
+        $this->assertEmpty($results);
+    }
+
+    public function test_cookie_flags_bare_setcookie(): void
+    {
+        file_put_contents($this->tempDir . '/login.php', "<?php setcookie('sid', \$id);\n");
+
+        $results = $this->runSilently(
+            new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI),
+            $this->tempDir
+        );
+
+        $this->assertCount(1, $results);
+        $this->assertSame(Issue::WARN, $results[0]->severity);
+        $this->assertSame('CookieFlagsCheck', $results[0]->check);
+        $this->assertStringContainsString('setcookie()', $results[0]->message);
     }
 
     // -------------------------------------------------------------------------

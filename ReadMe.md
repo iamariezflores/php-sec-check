@@ -36,6 +36,7 @@ These run on **any** PHP project:
 | Unsafe Function Usage | Source: whether risky functions are used in application PHP, and whether they receive untrusted input |
 | Directory Exposure | Sensitive files and directories sitting in the document root (`public/`, or a project-root `index.php`) |
 | Session Security | php.ini session hardening (`use_strict_mode`, `use_only_cookies`, `use_trans_sid`, SID entropy). Laravel `config/session.php` only when Laravel is detected |
+| Cookie Flags | `setcookie()` / `setrawcookie()` options, `session.cookie_secure` / `httponly` / `samesite`, and Laravel session cookie flags |
 
 #### PHP version
 
@@ -122,6 +123,23 @@ Laravel extras run only when `artisan` and `bootstrap/app.php` are present. A no
 | Laravel `cookie` driver with `encrypt` false | `WARN` |
 | Laravel `file` driver path under `public/` | `CRITICAL` |
 | Hardened PHP 8.2+ values (`strict_mode=1`, `use_only_cookies=1`, `use_trans_sid=0`, ≥128 bits) | clean |
+
+#### Cookie flags
+
+Missing `Secure`, `HttpOnly`, or `SameSite` makes session cookies easy to steal or CSRF. This check is separate from **Session security** (trans-sid, strict mode, SID entropy).
+
+| Signal | Finding |
+|---|---|
+| `setcookie('sid', $id)` / `setrawcookie()` with no options array | `WARN` — missing Secure, HttpOnly, and SameSite |
+| `setcookie(..., ['secure' => true, 'httponly' => true, 'samesite' => 'Lax'])` | clean |
+| Legacy 7-argument `setcookie` with Secure and HttpOnly but no SameSite | `WARN` |
+| `session.cookie_httponly=0` | `CRITICAL` |
+| `session.cookie_secure=0` | `WARN` |
+| `session.cookie_samesite` unset | `WARN` |
+| `SameSite=None` without `Secure` | `CRITICAL` |
+| Laravel `http_only => false` or `same_site => null` | `WARN` (only when `artisan` + `bootstrap/app.php` exist) |
+
+A third argument that is a variable (`setcookie('sid', $id, $opts)`) is skipped on this pass — the scanner does not follow assignments.
 
 ### Laravel-Specific Checks
 Auto-detected when `artisan` and `bootstrap/app.php` are present:
@@ -257,6 +275,9 @@ composer.json require.php: >=8.2 (floor 8.2.0)
 [SESSION SECURITY]
 [WARN] session.use_strict_mode is disabled. Enable it so PHP rejects uninitialized session IDs (session fixation).
 
+[COOKIE FLAGS]
+[WARN] setcookie() in login.php:1 is missing Secure, HttpOnly, and SameSite.
+
 Laravel project detected!
 [APP DEBUG]
 [CRITICAL] APP_DEBUG is enabled while APP_ENV is set to "production". This exposes stack traces and environment data to end users.
@@ -356,6 +377,7 @@ use Aquilinoflores\PhpSecCheck\Checks\DangerousFunctionsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\UnsafeFunctionUsageCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DirectoryExposureCheck;
 use Aquilinoflores\PhpSecCheck\Checks\SessionSecurityCheck;
+use Aquilinoflores\PhpSecCheck\Checks\CookieFlagsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\VendorCheck;
 
@@ -367,6 +389,7 @@ $checks = [
     new UnsafeFunctionUsageCheck(),             // token_get_all() source scan
     new DirectoryExposureCheck(),               // document-root .git / vendor / dumps
     new SessionSecurityCheck(),                 // php.ini session hardening
+    new CookieFlagsCheck(),                     // Secure / HttpOnly / SameSite
     new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
     new VendorCheck(),
 ];
