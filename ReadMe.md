@@ -40,6 +40,7 @@ These run on **any** PHP project:
 | File Upload | `move_uploaded_file()` destinations that keep the client filename, skip an extension/MIME allow-list, or write under `public/` |
 | XSS Output | `echo` / `print` / `<?=` of `$_GET` / `$_POST` / `$_REQUEST` / `$_COOKIE` without HTML escaping, and Blade `{!! !!}` |
 | SQL Injection | Concatenated or interpolated SQL with untrusted input (`mysqli_query` / `PDO::query` / `DB::select` / `whereRaw`) |
+| Unserialize | `unserialize()` / `maybe_unserialize()` object injection — any use is `WARN`, untrusted input is `CRITICAL` |
 
 #### PHP version
 
@@ -213,6 +214,20 @@ Building SQL with string concatenation or interpolation of request data is a cla
 
 Bound parameters in a later argument are ignored. Only the SQL string argument is inspected.
 
+#### Unserialize
+
+`unserialize()` can instantiate attacker-controlled objects (PHP object injection / POP chains). This is a separate source check from command-execution (`UnsafeFunctionUsageCheck`). First-pass `token_get_all()`; nested assignments are not followed. `vendor/`, `node_modules/`, `.git/`, `storage/framework/`, and `bootstrap/cache/` are skipped.
+
+| Finding | Severity |
+|---|---|
+| `unserialize($_POST['data'])` / `maybe_unserialize($_GET['opt'])` | `CRITICAL` |
+| `unserialize($cached)` (local variable, no superglobal in the argument list) | `WARN` |
+| `unserialize($cached, ['allowed_classes' => false])` | `WARN` at most — restriction noted, not silenced |
+| Untrusted input **plus** `allowed_classes => false` | still `CRITICAL` |
+| `json_decode($json)` | clean |
+
+Untrusted input for this check: `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, `$_FILES`, `$_SERVER`, `$argv`, `php://input`.
+
 ### Laravel-Specific Checks
 Auto-detected when `artisan` and `bootstrap/app.php` are present. Session **driver/path/encrypt** extras live on **Session Security**; session **cookie flags** live on **Cookie Flags**. Both run only in this case:
 
@@ -287,8 +302,8 @@ vendor/bin/sec-check --format=json
 ```json
 {
     "summary": {
-        "total": 10,
-        "critical": 7,
+        "total": 11,
+        "critical": 8,
         "warn": 3,
         "info": 0
     },
@@ -340,6 +355,11 @@ vendor/bin/sec-check --format=json
         },
         {
             "severity": "CRITICAL",
+            "message": "unserialize() receives untrusted input in cache.php:1.",
+            "check": "UnserializeCheck"
+        },
+        {
+            "severity": "CRITICAL",
             "message": ".env is listed in ignore rules but is still tracked by git. Remove it from the index with `git rm --cached .env`.",
             "check": "EnvCredentialsCheck"
         }
@@ -388,6 +408,9 @@ composer.json require.php: >=8.2 (floor 8.2.0)
 
 [SQL INJECTION]
 [CRITICAL] Concatenated SQL in query.php:2 uses untrusted input.
+
+[UNSERIALIZE]
+[CRITICAL] unserialize() receives untrusted input in cache.php:1.
 
 Laravel project detected!
 [APP DEBUG]
@@ -492,6 +515,7 @@ use Aquilinoflores\PhpSecCheck\Checks\CookieFlagsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\FileUploadCheck;
 use Aquilinoflores\PhpSecCheck\Checks\XssOutputCheck;
 use Aquilinoflores\PhpSecCheck\Checks\SqlInjectionCheck;
+use Aquilinoflores\PhpSecCheck\Checks\UnserializeCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\VendorCheck;
 
@@ -507,6 +531,7 @@ $checks = [
     new FileUploadCheck(),                      // move_uploaded_file() dest heuristics
     new XssOutputCheck(),                       // unescaped echo / Blade {!! !!}
     new SqlInjectionCheck(),                    // concatenated SQL with untrusted input
+    new UnserializeCheck(),                     // unserialize() / maybe_unserialize()
     new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
     new VendorCheck(),
 ];

@@ -14,6 +14,7 @@ use Aquilinoflores\PhpSecCheck\Checks\CookieFlagsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\FileUploadCheck;
 use Aquilinoflores\PhpSecCheck\Checks\XssOutputCheck;
 use Aquilinoflores\PhpSecCheck\Checks\SqlInjectionCheck;
+use Aquilinoflores\PhpSecCheck\Checks\UnserializeCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\AppDebugCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\DefaultCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
@@ -95,6 +96,7 @@ class ProgrammaticUsageTest extends TestCase
             'FileUploadCheck'         => [new FileUploadCheck()],
             'XssOutputCheck'          => [new XssOutputCheck()],
             'SqlInjectionCheck'       => [new SqlInjectionCheck()],
+            'UnserializeCheck'        => [new UnserializeCheck()],
             'EnvCredentialsCheck'     => [new EnvCredentialsCheck()],
             'VendorCheck'             => [new VendorCheck()],
             'AppDebugCheck'           => [new AppDebugCheck()],
@@ -120,6 +122,7 @@ class ProgrammaticUsageTest extends TestCase
             new FileUploadCheck(),
             new XssOutputCheck(),
             new SqlInjectionCheck(),
+            new UnserializeCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
             new AppDebugCheck(),
@@ -150,6 +153,7 @@ class ProgrammaticUsageTest extends TestCase
             new FileUploadCheck(),
             new XssOutputCheck(),
             new SqlInjectionCheck(),
+            new UnserializeCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
         ];
@@ -452,6 +456,28 @@ PHP);
         $this->assertSame(Issue::CRITICAL, $results[0]->severity);
         $this->assertSame('SqlInjectionCheck', $results[0]->check);
         $this->assertStringContainsString('untrusted input', $results[0]->message);
+    }
+
+    // -------------------------------------------------------------------------
+    // UnserializeCheck — programmatic usage
+    // -------------------------------------------------------------------------
+
+    public function test_unserialize_clean_project_returns_empty(): void
+    {
+        $results = $this->runSilently(new UnserializeCheck(), $this->tempDir);
+        $this->assertEmpty($results);
+    }
+
+    public function test_unserialize_post_is_critical(): void
+    {
+        file_put_contents($this->tempDir . '/cache.php', "<?php unserialize(\$_POST['data']);\n");
+
+        $results = $this->runSilently(new UnserializeCheck(), $this->tempDir);
+
+        $this->assertCount(1, $results);
+        $this->assertSame(Issue::CRITICAL, $results[0]->severity);
+        $this->assertSame('UnserializeCheck', $results[0]->check);
+        $this->assertStringContainsString('unserialize()', $results[0]->message);
     }
 
     // -------------------------------------------------------------------------
