@@ -106,4 +106,14 @@ PHP;
         $this->assertCount(1, $calls);
         $this->assertSame('curl_exec', $calls[0]['function']);
     }
+
+    public function test_splits_setcookie_options_array_as_third_argument(): void
+    {
+        $source = "<?php setcookie('sid', \$id, ['secure' => true, 'httponly' => true, 'samesite' => 'Lax']);";
+        $calls  = $this->scanner->findCallsWithArguments($source, ['setcookie']);
+
+        $this->assertCount(1, $calls);
+        $this->assertCount(3, $calls[0]['arguments']);
+        $this->assertSame('setcookie', $calls[0]['function']);
+    }
 }

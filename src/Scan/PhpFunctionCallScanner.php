@@ -28,6 +28,31 @@ class PhpFunctionCallScanner
      */
     public function findCalls(string $source, array $functionNames): array
     {
+        $calls = [];
+        foreach ($this->findCallsWithArguments($source, $functionNames) as $call) {
+            $flat = [];
+            foreach ($call['arguments'] as $group) {
+                foreach ($group as $token) {
+                    $flat[] = $token;
+                }
+            }
+            $calls[] = [
+                'function'  => $call['function'],
+                'line'      => $call['line'],
+                'untrusted' => $this->argumentsUseUntrusted($flat),
+                'via'       => $call['via'],
+            ];
+        }
+
+        return $calls;
+    }
+
+    /**
+     * @param list<string> $functionNames
+     * @return list<array{function: string, line: int, via: string, arguments: list<list<string|array{0: int, 1: string, 2: int}>>}>
+     */
+    public function findCallsWithArguments(string $source, array $functionNames): array
+    {
         $wanted = array_map('strtolower', $functionNames);
         $tokens = @token_get_all($source);
         if (!is_array($tokens) || $tokens === []) {
@@ -41,7 +66,13 @@ class PhpFunctionCallScanner
             $token = $tokens[$i];
 
             if ($token === '`' && in_array('shell_exec', $wanted, true)) {
-                $calls[] = $this->captureBacktick($tokens, $i);
+                $inner = $this->captureBacktickInner($tokens, $i);
+                $calls[] = [
+                    'function'  => 'shell_exec',
+                    'line'      => $inner['line'],
+                    'via'       => 'backtick',
+                    'arguments' => [$inner['tokens']],
+                ];
                 for ($j = $i + 1; $j < $count; $j++) {
                     if ($tokens[$j] === '`') {
                         $i = $j;
@@ -58,8 +89,8 @@ class PhpFunctionCallScanner
                     $calls[] = [
                         'function'  => 'eval',
                         'line'      => $token[2],
-                        'untrusted' => $this->argumentsUseUntrusted($args),
                         'via'       => 'call',
+                        'arguments' => $this->splitArguments($args),
                     ];
                 }
                 continue;
@@ -87,8 +118,8 @@ class PhpFunctionCallScanner
             $calls[] = [
                 'function'  => $name,
                 'line'      => $token[2],
-                'untrusted' => $this->argumentsUseUntrusted($args),
                 'via'       => 'call',
+                'arguments' => $this->splitArguments($args),
             ];
         }
 
@@ -97,9 +128,9 @@ class PhpFunctionCallScanner
 
     /**
      * @param list<string|array{0: int, 1: string, 2: int}> $tokens
-     * @return array{function: string, line: int, untrusted: bool, via: string}
+     * @return array{line: int, tokens: list<string|array{0: int, 1: string, 2: int}>}
      */
-    private function captureBacktick(array $tokens, int $index): array
+    private function captureBacktickInner(array $tokens, int $index): array
     {
         $inner = [];
         $line  = 1;
@@ -115,12 +146,46 @@ class PhpFunctionCallScanner
             }
         }
 
-        return [
-            'function'  => 'shell_exec',
-            'line'      => $line,
-            'untrusted' => $this->argumentsUseUntrusted($inner),
-            'via'       => 'backtick',
-        ];
+        return ['line' => $line, 'tokens' => $inner];
+    }
+
+    /**
+     * @param list<string|array{0: int, 1: string, 2: int}> $argTokens
+     * @return list<list<string|array{0: int, 1: string, 2: int}>>
+     */
+    public function splitArguments(array $argTokens): array
+    {
+        $args    = [];
+        $current = [];
+        $paren   = 0;
+        $bracket = 0;
+
+        foreach ($argTokens as $token) {
+            $char = is_array($token) ? null : $token;
+            if ($char === '(') {
+                $paren++;
+            } elseif ($char === ')') {
+                $paren--;
+            } elseif ($char === '[') {
+                $bracket++;
+            } elseif ($char === ']') {
+                $bracket--;
+            }
+
+            if ($char === ',' && $paren === 0 && $bracket === 0) {
+                $args[]  = $current;
+                $current = [];
+                continue;
+            }
+
+            $current[] = $token;
+        }
+
+        if ($current !== []) {
+            $args[] = $current;
+        }
+
+        return $args;
     }
 
     /**
