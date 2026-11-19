@@ -9,6 +9,7 @@ use Aquilinoflores\PhpSecCheck\Checks\DisplayErrorsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\PhpVersionCheck;
 use Aquilinoflores\PhpSecCheck\Checks\UnsafeFunctionUsageCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DirectoryExposureCheck;
+use Aquilinoflores\PhpSecCheck\Checks\SessionSecurityCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\AppDebugCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\DefaultCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
@@ -85,6 +86,7 @@ class ProgrammaticUsageTest extends TestCase
             'DangerousFunctionsCheck' => [new DangerousFunctionsCheck()],
             'UnsafeFunctionUsageCheck'=> [new UnsafeFunctionUsageCheck()],
             'DirectoryExposureCheck'  => [new DirectoryExposureCheck()],
+            'SessionSecurityCheck'    => [new SessionSecurityCheck(SessionSecurityCheck::HARDENED_INI)],
             'EnvCredentialsCheck'     => [new EnvCredentialsCheck()],
             'VendorCheck'             => [new VendorCheck()],
             'AppDebugCheck'           => [new AppDebugCheck()],
@@ -105,6 +107,7 @@ class ProgrammaticUsageTest extends TestCase
             new DangerousFunctionsCheck(),
             new UnsafeFunctionUsageCheck(),
             new DirectoryExposureCheck(),
+            new SessionSecurityCheck(SessionSecurityCheck::HARDENED_INI),
             new EnvCredentialsCheck(),
             new VendorCheck(),
             new AppDebugCheck(),
@@ -130,6 +133,7 @@ class ProgrammaticUsageTest extends TestCase
             new DangerousFunctionsCheck(''),
             new UnsafeFunctionUsageCheck(),
             new DirectoryExposureCheck(),
+            new SessionSecurityCheck(SessionSecurityCheck::HARDENED_INI),
             new EnvCredentialsCheck(),
             new VendorCheck(),
         ];
@@ -306,6 +310,32 @@ PHP);
         $this->assertSame(Issue::CRITICAL, $results[0]->severity);
         $this->assertSame('DirectoryExposureCheck', $results[0]->check);
         $this->assertStringContainsString('public/.git', $results[0]->message);
+    }
+
+    // -------------------------------------------------------------------------
+    // SessionSecurityCheck — programmatic usage
+    // -------------------------------------------------------------------------
+
+    public function test_session_security_hardened_ini_returns_empty(): void
+    {
+        $results = $this->runSilently(
+            new SessionSecurityCheck(SessionSecurityCheck::HARDENED_INI),
+            $this->tempDir
+        );
+        $this->assertEmpty($results);
+    }
+
+    public function test_session_security_flags_trans_sid(): void
+    {
+        $ini = SessionSecurityCheck::HARDENED_INI;
+        $ini['session.use_trans_sid'] = '1';
+
+        $results = $this->runSilently(new SessionSecurityCheck($ini), $this->tempDir);
+
+        $this->assertCount(1, $results);
+        $this->assertSame(Issue::CRITICAL, $results[0]->severity);
+        $this->assertSame('SessionSecurityCheck', $results[0]->check);
+        $this->assertStringContainsString('session.use_trans_sid', $results[0]->message);
     }
 
     // -------------------------------------------------------------------------
