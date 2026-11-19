@@ -90,11 +90,17 @@ Untrusted input, for this pass: `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, `$_F
 
 #### Directory exposure
 
-Looks at the **document root**, not at whether `vendor/` is listed in `.gitignore` (`VendorCheck` still owns that). `public/` is scanned when that directory exists. A project-root `index.php` is treated as the document root only when `public/index.php` is absent.
+`VendorCheck` only asks whether `vendor/` is listed in `.gitignore`. A web server does not read `.gitignore`. `DirectoryExposureCheck` asks whether sensitive paths sit in the **document root** and can be downloaded.
 
-`.env` copies in the web root stay with `EnvCredentialsCheck` and are not double-counted here. A Laravel `public/storage` **symlink** (`php artisan storage:link`) is not a finding; a real `storage/` directory copied into the document root is.
+| Project layout | What is scanned |
+|---|---|
+| `public/` directory exists | `public/` |
+| `index.php` at the project root and **no** `public/index.php` | project root |
+| neither | nothing (informational only) |
 
-Git tracking uses `git ls-files` and `git check-ignore --no-index`. Ignore rules do not hide a path the web server can still serve.
+Git is extra context, not the decision. Tracking uses `git ls-files`; ignore rules use `git check-ignore --no-index`. A path that is gitignored but still on disk in `public/` is still a finding. A path that is also tracked is promoted to `CRITICAL`.
+
+A Laravel `public/storage` **symlink** (`php artisan storage:link`) is skipped. A real `storage/` directory copied into the document root is not.
 
 | Finding | Severity |
 |---|---|
@@ -108,21 +114,25 @@ Git tracking uses `git ls-files` and `git check-ignore --no-index`. Ignore rules
 
 #### Session security
 
-Checks **php.ini / runtime** session settings. Cookie flags (`Secure`, `HttpOnly`, `SameSite`) are not part of this check.
+This is php.ini session **mechanics**, not cookie flags. `Secure`, `HttpOnly`, and `SameSite` belong to a separate check.
 
-Laravel extras run only when `artisan` and `bootstrap/app.php` are present. A normal `file` driver writing to `storage/framework/sessions` is clean.
+Settings are read from runtime `ini_get()` (or an injected map when you construct `SessionSecurityCheck` yourself). SID strength is `sid_length × sid_bits_per_character`. PHP's own minimum length is 22; **128 bits** of entropy is the floor we treat as locked down. Both `32 × 4` (engine default length) and `26 × 5` (common `php.ini-production`) pass.
 
-| Finding | Severity |
+| Setting | Hardened value | Finding |
+|---|---|---|
+| `session.use_trans_sid` | `0` | `CRITICAL` if enabled — session IDs leak in URLs and `Referer` |
+| `session.use_only_cookies` | `1` | `CRITICAL` if disabled — session IDs can be passed in URLs |
+| `session.save_path` | not under the document root | `CRITICAL` if it resolves inside `public/` (including `N;mode;/path` prefixes) |
+| `session.sid_length` | ≥ 22 | `CRITICAL` below PHP's minimum |
+| `session.use_strict_mode` | `1` | `WARN` if disabled — uninitialized IDs (session fixation) |
+| SID entropy | ≥ 128 bits | `WARN` if lower |
+
+Laravel extras run **only** when `artisan` and `bootstrap/app.php` exist. `.env` overrides `config/session.php` defaults. A normal `file` driver writing to `storage_path('framework/sessions')` is clean.
+
+| Laravel finding | Severity |
 |---|---|
-| `session.use_trans_sid=1` | `CRITICAL` |
-| `session.use_only_cookies=0` | `CRITICAL` |
-| `session.save_path` inside the document root | `CRITICAL` |
-| SID length below PHP's minimum (22) | `CRITICAL` |
-| `session.use_strict_mode=0` | `WARN` |
-| SID entropy below 128 bits | `WARN` |
-| Laravel `cookie` driver with `encrypt` false | `WARN` |
-| Laravel `file` driver path under `public/` | `CRITICAL` |
-| Hardened PHP 8.2+ values (`strict_mode=1`, `use_only_cookies=1`, `use_trans_sid=0`, ≥128 bits) | clean |
+| `cookie` driver with `encrypt` false | `WARN` |
+| `file` driver path under `public/` (`public_path(...)` or a `public/` string) | `CRITICAL` |
 
 #### Cookie flags
 
@@ -142,7 +152,7 @@ Missing `Secure`, `HttpOnly`, or `SameSite` makes session cookies easy to steal 
 A third argument that is a variable (`setcookie('sid', $id, $opts)`) is skipped on this pass — the scanner does not follow assignments.
 
 ### Laravel-Specific Checks
-Auto-detected when `artisan` and `bootstrap/app.php` are present:
+Auto-detected when `artisan` and `bootstrap/app.php` are present. Session cookie/file extras live on the generic **Session Security** check and run only in this case:
 
 | Check | Description |
 |---|---|
@@ -215,8 +225,8 @@ vendor/bin/sec-check --format=json
 ```json
 {
     "summary": {
-        "total": 4,
-        "critical": 2,
+        "total": 6,
+        "critical": 4,
         "warn": 2,
         "info": 0
     },
@@ -235,6 +245,16 @@ vendor/bin/sec-check --format=json
             "severity": "CRITICAL",
             "message": "exec() receives untrusted input in app/Job.php:12.",
             "check": "UnsafeFunctionUsageCheck"
+        },
+        {
+            "severity": "CRITICAL",
+            "message": "public/.git is inside the document root and can be downloaded. Move repository metadata out of the web root.",
+            "check": "DirectoryExposureCheck"
+        },
+        {
+            "severity": "WARN",
+            "message": "session.use_strict_mode is disabled. Enable it so PHP rejects uninitialized session IDs (session fixation).",
+            "check": "SessionSecurityCheck"
         },
         {
             "severity": "CRITICAL",
@@ -388,7 +408,7 @@ $checks = [
     new DangerousFunctionsCheck(),              // php.ini disable_functions
     new UnsafeFunctionUsageCheck(),             // token_get_all() source scan
     new DirectoryExposureCheck(),               // document-root .git / vendor / dumps
-    new SessionSecurityCheck(),                 // php.ini session hardening
+    new SessionSecurityCheck(),                 // runtime php.ini; pass an ini map in tests
     new CookieFlagsCheck(),                     // Secure / HttpOnly / SameSite
     new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
     new VendorCheck(),
@@ -455,7 +475,7 @@ The test suite uses PHPUnit and covers all PHP and Laravel checks:
 composer test
 ```
 
-Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Token-scanner tests are in `tests/Scan/`. PHP support-calendar tests are in `tests/Php/`. Git working-tree helpers are covered in `tests/Git/`. Integration tests for programmatic usage, JSON output, and exit codes are in `tests/Integration/`.
+Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Token-scanner tests are in `tests/Scan/`. PHP support-calendar tests are in `tests/Php/`. Git working-tree helpers are covered in `tests/Git/`. Directory-exposure and session-security tests are in `tests/Checks/`. Integration tests for programmatic usage, JSON output, and exit codes are in `tests/Integration/`.
 
 ---
 
