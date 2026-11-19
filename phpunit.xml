@@ -12,6 +12,7 @@
             <file>tests/Checks/ComposerAuditCheckTest.php</file>
             <file>tests/Checks/DangerousFunctionsCheckTest.php</file>
             <file>tests/Checks/UnsafeFunctionUsageCheckTest.php</file>
+            <file>tests/Checks/DirectoryExposureCheckTest.php</file>
         </testsuite>
         <testsuite name="Scan">
             <directory>tests/Scan</directory>
