@@ -13,6 +13,7 @@ use Aquilinoflores\PhpSecCheck\Checks\SessionSecurityCheck;
 use Aquilinoflores\PhpSecCheck\Checks\CookieFlagsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\FileUploadCheck;
 use Aquilinoflores\PhpSecCheck\Checks\XssOutputCheck;
+use Aquilinoflores\PhpSecCheck\Checks\SqlInjectionCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\AppDebugCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\DefaultCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
@@ -93,6 +94,7 @@ class ProgrammaticUsageTest extends TestCase
             'CookieFlagsCheck'        => [new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI)],
             'FileUploadCheck'         => [new FileUploadCheck()],
             'XssOutputCheck'          => [new XssOutputCheck()],
+            'SqlInjectionCheck'       => [new SqlInjectionCheck()],
             'EnvCredentialsCheck'     => [new EnvCredentialsCheck()],
             'VendorCheck'             => [new VendorCheck()],
             'AppDebugCheck'           => [new AppDebugCheck()],
@@ -117,6 +119,7 @@ class ProgrammaticUsageTest extends TestCase
             new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI),
             new FileUploadCheck(),
             new XssOutputCheck(),
+            new SqlInjectionCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
             new AppDebugCheck(),
@@ -146,6 +149,7 @@ class ProgrammaticUsageTest extends TestCase
             new CookieFlagsCheck(CookieFlagsCheck::HARDENED_INI),
             new FileUploadCheck(),
             new XssOutputCheck(),
+            new SqlInjectionCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
         ];
@@ -423,6 +427,31 @@ PHP);
         $this->assertSame(Issue::CRITICAL, $results[0]->severity);
         $this->assertSame('XssOutputCheck', $results[0]->check);
         $this->assertStringContainsString('echo', $results[0]->message);
+    }
+
+    // -------------------------------------------------------------------------
+    // SqlInjectionCheck — programmatic usage
+    // -------------------------------------------------------------------------
+
+    public function test_sql_injection_clean_project_returns_empty(): void
+    {
+        $results = $this->runSilently(new SqlInjectionCheck(), $this->tempDir);
+        $this->assertEmpty($results);
+    }
+
+    public function test_sql_injection_concatenated_select_is_critical(): void
+    {
+        file_put_contents(
+            $this->tempDir . '/query.php',
+            "<?php \$sql = \"SELECT * FROM users WHERE id = \" . \$_GET['id'];\n"
+        );
+
+        $results = $this->runSilently(new SqlInjectionCheck(), $this->tempDir);
+
+        $this->assertCount(1, $results);
+        $this->assertSame(Issue::CRITICAL, $results[0]->severity);
+        $this->assertSame('SqlInjectionCheck', $results[0]->check);
+        $this->assertStringContainsString('untrusted input', $results[0]->message);
     }
 
     // -------------------------------------------------------------------------
