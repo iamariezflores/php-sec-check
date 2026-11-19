@@ -51,7 +51,7 @@ class PhpFunctionCallScanner
      * @param list<string> $functionNames
      * @return list<array{function: string, line: int, via: string, arguments: list<list<string|array{0: int, 1: string, 2: int}>>}>
      */
-    public function findCallsWithArguments(string $source, array $functionNames): array
+    public function findCallsWithArguments(string $source, array $functionNames, bool $includeMethods = false): array
     {
         $wanted = array_map('strtolower', $functionNames);
         $tokens = @token_get_all($source);
@@ -105,7 +105,7 @@ class PhpFunctionCallScanner
                 continue;
             }
 
-            if ($this->isMethodOrQualifiedName($tokens, $i)) {
+            if ($this->shouldSkipCallable($tokens, $i, $includeMethods)) {
                 continue;
             }
 
@@ -205,6 +205,23 @@ class PhpFunctionCallScanner
         }
 
         return null;
+    }
+
+    /**
+     * @param list<string|array{0: int, 1: string, 2: int}> $tokens
+     */
+    private function shouldSkipCallable(array $tokens, int $index, bool $includeMethods): bool
+    {
+        [, $prev] = $this->previousSignificant($tokens, $index);
+        if (is_array($prev) && in_array($prev[0], [T_FUNCTION, T_NEW], true)) {
+            return true;
+        }
+
+        if ($includeMethods) {
+            return false;
+        }
+
+        return $this->isMethodOrQualifiedName($tokens, $index);
     }
 
     /**

@@ -71,6 +71,18 @@ class PhpFunctionCallScannerTest extends TestCase
         $this->assertEmpty($calls);
     }
 
+    public function test_include_methods_finds_pdo_query(): void
+    {
+        $calls = $this->scanner->findCallsWithArguments(
+            '<?php $pdo->query("SELECT 1");',
+            ['query'],
+            true
+        );
+
+        $this->assertCount(1, $calls);
+        $this->assertSame('query', $calls[0]['function']);
+    }
+
     public function test_ignores_static_calls_and_function_definitions(): void
     {
         $source = <<<'PHP'

@@ -39,6 +39,7 @@ These run on **any** PHP project:
 | Cookie Flags | `setcookie()` / `setrawcookie()` options, `session.cookie_secure` / `httponly` / `samesite`, and Laravel session cookie flags |
 | File Upload | `move_uploaded_file()` destinations that keep the client filename, skip an extension/MIME allow-list, or write under `public/` |
 | XSS Output | `echo` / `print` / `<?=` of `$_GET` / `$_POST` / `$_REQUEST` / `$_COOKIE` without HTML escaping, and Blade `{!! !!}` |
+| SQL Injection | Concatenated or interpolated SQL with untrusted input (`mysqli_query` / `PDO::query` / `DB::select` / `whereRaw`) |
 
 #### PHP version
 
@@ -196,6 +197,22 @@ Untrusted input for this check: `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`.
 
 A concatenated mix (`htmlspecialchars($_GET['a']) . $_GET['b']`) is still `CRITICAL` because part of the output is unescaped.
 
+#### SQL injection
+
+Building SQL with string concatenation or interpolation of request data is a classic injection path. This is a first-pass `token_get_all()` scan — not a SQL parser. Nested assignments are not followed. `vendor/`, `node_modules/`, `.git/`, `storage/framework/`, and `bootstrap/cache/` are skipped.
+
+| Finding | Severity |
+|---|---|
+| `"SELECT * FROM users WHERE id = " . $_GET['id']` | `CRITICAL` |
+| `"SELECT * FROM users WHERE id = {$_GET['id']}"` | `CRITICAL` |
+| `mysqli_query` / `PDO::query` / `PDO::exec` / `DB::select` with concatenated or untrusted SQL | `CRITICAL` |
+| Laravel `whereRaw('id = ' . $_GET['id'])` | `CRITICAL` |
+| `$pdo->prepare('SELECT * FROM users WHERE id = ?')` + `execute([$id])` | clean |
+| `DB::select('SELECT * FROM users WHERE id = ?', [$_GET['id']])` | clean |
+| `User::where('id', $id)` / `User::where('id', $_GET['id'])` | clean |
+
+Bound parameters in a later argument are ignored. Only the SQL string argument is inspected.
+
 ### Laravel-Specific Checks
 Auto-detected when `artisan` and `bootstrap/app.php` are present. Session **driver/path/encrypt** extras live on **Session Security**; session **cookie flags** live on **Cookie Flags**. Both run only in this case:
 
@@ -270,8 +287,8 @@ vendor/bin/sec-check --format=json
 ```json
 {
     "summary": {
-        "total": 9,
-        "critical": 6,
+        "total": 10,
+        "critical": 7,
         "warn": 3,
         "info": 0
     },
@@ -315,6 +332,11 @@ vendor/bin/sec-check --format=json
             "severity": "CRITICAL",
             "message": "echo in view.php:2 outputs untrusted input without HTML escaping.",
             "check": "XssOutputCheck"
+        },
+        {
+            "severity": "CRITICAL",
+            "message": "Concatenated SQL in query.php:2 uses untrusted input.",
+            "check": "SqlInjectionCheck"
         },
         {
             "severity": "CRITICAL",
@@ -363,6 +385,9 @@ composer.json require.php: >=8.2 (floor 8.2.0)
 
 [XSS OUTPUT]
 [CRITICAL] echo in view.php:2 outputs untrusted input without HTML escaping.
+
+[SQL INJECTION]
+[CRITICAL] Concatenated SQL in query.php:2 uses untrusted input.
 
 Laravel project detected!
 [APP DEBUG]
@@ -466,6 +491,7 @@ use Aquilinoflores\PhpSecCheck\Checks\SessionSecurityCheck;
 use Aquilinoflores\PhpSecCheck\Checks\CookieFlagsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\FileUploadCheck;
 use Aquilinoflores\PhpSecCheck\Checks\XssOutputCheck;
+use Aquilinoflores\PhpSecCheck\Checks\SqlInjectionCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\VendorCheck;
 
@@ -480,6 +506,7 @@ $checks = [
     new CookieFlagsCheck(),                     // Secure / HttpOnly / SameSite
     new FileUploadCheck(),                      // move_uploaded_file() dest heuristics
     new XssOutputCheck(),                       // unescaped echo / Blade {!! !!}
+    new SqlInjectionCheck(),                    // concatenated SQL with untrusted input
     new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
     new VendorCheck(),
 ];
