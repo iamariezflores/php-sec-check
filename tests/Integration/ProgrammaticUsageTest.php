@@ -8,6 +8,7 @@ use Aquilinoflores\PhpSecCheck\Checks\DangerousFunctionsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DisplayErrorsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\PhpVersionCheck;
 use Aquilinoflores\PhpSecCheck\Checks\UnsafeFunctionUsageCheck;
+use Aquilinoflores\PhpSecCheck\Checks\DirectoryExposureCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\AppDebugCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\DefaultCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
@@ -83,6 +84,7 @@ class ProgrammaticUsageTest extends TestCase
             'ComposerAuditCheck'      => [new ComposerAuditCheck()],
             'DangerousFunctionsCheck' => [new DangerousFunctionsCheck()],
             'UnsafeFunctionUsageCheck'=> [new UnsafeFunctionUsageCheck()],
+            'DirectoryExposureCheck'  => [new DirectoryExposureCheck()],
             'EnvCredentialsCheck'     => [new EnvCredentialsCheck()],
             'VendorCheck'             => [new VendorCheck()],
             'AppDebugCheck'           => [new AppDebugCheck()],
@@ -102,6 +104,7 @@ class ProgrammaticUsageTest extends TestCase
             new ComposerAuditCheck(),
             new DangerousFunctionsCheck(),
             new UnsafeFunctionUsageCheck(),
+            new DirectoryExposureCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
             new AppDebugCheck(),
@@ -126,6 +129,7 @@ class ProgrammaticUsageTest extends TestCase
             new DisplayErrorsCheck(),
             new DangerousFunctionsCheck(''),
             new UnsafeFunctionUsageCheck(),
+            new DirectoryExposureCheck(),
             new EnvCredentialsCheck(),
             new VendorCheck(),
         ];
@@ -276,6 +280,32 @@ PHP);
     {
         $results = $this->runSilently(new DangerousFunctionsCheck(), $this->tempDir);
         $this->assertIsArray($results);
+    }
+
+    // -------------------------------------------------------------------------
+    // DirectoryExposureCheck — programmatic usage
+    // -------------------------------------------------------------------------
+
+    public function test_directory_exposure_clean_public_returns_empty(): void
+    {
+        mkdir($this->tempDir . '/public', 0777, true);
+        file_put_contents($this->tempDir . '/public/index.php', "<?php\n");
+
+        $results = $this->runSilently(new DirectoryExposureCheck(), $this->tempDir);
+        $this->assertEmpty($results);
+    }
+
+    public function test_directory_exposure_flags_public_git(): void
+    {
+        mkdir($this->tempDir . '/public/.git', 0777, true);
+        file_put_contents($this->tempDir . '/public/index.php', "<?php\n");
+
+        $results = $this->runSilently(new DirectoryExposureCheck(), $this->tempDir);
+
+        $this->assertNotEmpty($results);
+        $this->assertSame(Issue::CRITICAL, $results[0]->severity);
+        $this->assertSame('DirectoryExposureCheck', $results[0]->check);
+        $this->assertStringContainsString('public/.git', $results[0]->message);
     }
 
     // -------------------------------------------------------------------------

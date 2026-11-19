@@ -34,6 +34,7 @@ These run on **any** PHP project:
 | Composer Audit | Runs `composer audit` to surface known CVEs in your dependencies |
 | Dangerous Functions | Configuration: whether shell-execution functions are listed in `disable_functions` |
 | Unsafe Function Usage | Source: whether risky functions are used in application PHP, and whether they receive untrusted input |
+| Directory Exposure | Sensitive files and directories sitting in the document root (`public/`, or a project-root `index.php`) |
 
 #### PHP version
 
@@ -84,6 +85,24 @@ Method calls such as `$pdo->exec()` and function definitions are ignored. `\exec
 | `curl_exec`, `curl_multi_exec` | Only if untrusted input reaches the call — a normal `curl_exec($ch)` is clean |
 
 Untrusted input, for this pass: `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, `$_FILES`, `$_SERVER`, `$argv`, and `php://input`. Nested assignments are not followed yet.
+
+#### Directory exposure
+
+Looks at the **document root**, not at whether `vendor/` is listed in `.gitignore` (`VendorCheck` still owns that). `public/` is scanned when that directory exists. A project-root `index.php` is treated as the document root only when `public/index.php` is absent.
+
+`.env` copies in the web root stay with `EnvCredentialsCheck` and are not double-counted here. A Laravel `public/storage` **symlink** (`php artisan storage:link`) is not a finding; a real `storage/` directory copied into the document root is.
+
+Git tracking uses `git ls-files` and `git check-ignore --no-index`. Ignore rules do not hide a path the web server can still serve.
+
+| Finding | Severity |
+|---|---|
+| `.git` or `vendor/` in the document root | `CRITICAL` |
+| `backup/`, `dumps/`, `storage/` (real directory, not a symlink) | `CRITICAL` |
+| `phpinfo.php` or `*.sql` in the document root | `CRITICAL` |
+| `composer.json` / `composer.lock`, `*.log`, `.htaccess` backups | `WARN` |
+| Path is also tracked by git | promoted to `CRITICAL` |
+| `public/.env` | not this check — `EnvCredentialsCheck` |
+| Project-root `vendor/` next to Laravel `public/` | not this check — `VendorCheck` |
 
 ### Laravel-Specific Checks
 Auto-detected when `artisan` and `bootstrap/app.php` are present:
@@ -213,6 +232,9 @@ composer.json require.php: >=8.2 (floor 8.2.0)
 [UNSAFE FUNCTION USAGE]
 [CRITICAL] exec() receives untrusted input in app/Job.php:12.
 
+[DIRECTORY EXPOSURE]
+[CRITICAL] public/.git is inside the document root and can be downloaded. Move repository metadata out of the web root.
+
 Laravel project detected!
 [APP DEBUG]
 [CRITICAL] APP_DEBUG is enabled while APP_ENV is set to "production". This exposes stack traces and environment data to end users.
@@ -310,6 +332,7 @@ use Aquilinoflores\PhpSecCheck\Issue;
 use Aquilinoflores\PhpSecCheck\Checks\PhpVersionCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DangerousFunctionsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\UnsafeFunctionUsageCheck;
+use Aquilinoflores\PhpSecCheck\Checks\DirectoryExposureCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\VendorCheck;
 
@@ -319,6 +342,7 @@ $checks = [
     new PhpVersionCheck(),
     new DangerousFunctionsCheck(),              // php.ini disable_functions
     new UnsafeFunctionUsageCheck(),             // token_get_all() source scan
+    new DirectoryExposureCheck(),               // document-root .git / vendor / dumps
     new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
     new VendorCheck(),
 ];
