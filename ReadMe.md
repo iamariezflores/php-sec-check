@@ -35,6 +35,7 @@ These run on **any** PHP project:
 | Dangerous Functions | Configuration: whether shell-execution functions are listed in `disable_functions` |
 | Unsafe Function Usage | Source: whether risky functions are used in application PHP, and whether they receive untrusted input |
 | Directory Exposure | Sensitive files and directories sitting in the document root (`public/`, or a project-root `index.php`) |
+| Session Security | php.ini session hardening (`use_strict_mode`, `use_only_cookies`, `use_trans_sid`, SID entropy). Laravel `config/session.php` only when Laravel is detected |
 
 #### PHP version
 
@@ -103,6 +104,24 @@ Git tracking uses `git ls-files` and `git check-ignore --no-index`. Ignore rules
 | Path is also tracked by git | promoted to `CRITICAL` |
 | `public/.env` | not this check — `EnvCredentialsCheck` |
 | Project-root `vendor/` next to Laravel `public/` | not this check — `VendorCheck` |
+
+#### Session security
+
+Checks **php.ini / runtime** session settings. Cookie flags (`Secure`, `HttpOnly`, `SameSite`) are not part of this check.
+
+Laravel extras run only when `artisan` and `bootstrap/app.php` are present. A normal `file` driver writing to `storage/framework/sessions` is clean.
+
+| Finding | Severity |
+|---|---|
+| `session.use_trans_sid=1` | `CRITICAL` |
+| `session.use_only_cookies=0` | `CRITICAL` |
+| `session.save_path` inside the document root | `CRITICAL` |
+| SID length below PHP's minimum (22) | `CRITICAL` |
+| `session.use_strict_mode=0` | `WARN` |
+| SID entropy below 128 bits | `WARN` |
+| Laravel `cookie` driver with `encrypt` false | `WARN` |
+| Laravel `file` driver path under `public/` | `CRITICAL` |
+| Hardened PHP 8.2+ values (`strict_mode=1`, `use_only_cookies=1`, `use_trans_sid=0`, ≥128 bits) | clean |
 
 ### Laravel-Specific Checks
 Auto-detected when `artisan` and `bootstrap/app.php` are present:
@@ -235,6 +254,9 @@ composer.json require.php: >=8.2 (floor 8.2.0)
 [DIRECTORY EXPOSURE]
 [CRITICAL] public/.git is inside the document root and can be downloaded. Move repository metadata out of the web root.
 
+[SESSION SECURITY]
+[WARN] session.use_strict_mode is disabled. Enable it so PHP rejects uninitialized session IDs (session fixation).
+
 Laravel project detected!
 [APP DEBUG]
 [CRITICAL] APP_DEBUG is enabled while APP_ENV is set to "production". This exposes stack traces and environment data to end users.
@@ -333,6 +355,7 @@ use Aquilinoflores\PhpSecCheck\Checks\PhpVersionCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DangerousFunctionsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\UnsafeFunctionUsageCheck;
 use Aquilinoflores\PhpSecCheck\Checks\DirectoryExposureCheck;
+use Aquilinoflores\PhpSecCheck\Checks\SessionSecurityCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Checks\Laravel\VendorCheck;
 
@@ -343,6 +366,7 @@ $checks = [
     new DangerousFunctionsCheck(),              // php.ini disable_functions
     new UnsafeFunctionUsageCheck(),             // token_get_all() source scan
     new DirectoryExposureCheck(),               // document-root .git / vendor / dumps
+    new SessionSecurityCheck(),                 // php.ini session hardening
     new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
     new VendorCheck(),
 ];

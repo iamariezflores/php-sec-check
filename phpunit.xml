@@ -13,6 +13,7 @@
             <file>tests/Checks/DangerousFunctionsCheckTest.php</file>
             <file>tests/Checks/UnsafeFunctionUsageCheckTest.php</file>
             <file>tests/Checks/DirectoryExposureCheckTest.php</file>
+            <file>tests/Checks/SessionSecurityCheckTest.php</file>
         </testsuite>
         <testsuite name="Scan">
             <directory>tests/Scan</directory>
