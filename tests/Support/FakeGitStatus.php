@@ -30,4 +30,9 @@ final class FakeGitStatus implements GitStatus
     {
         return in_array($relativePath, $this->ignored, true);
     }
+
+    public function trackedFiles(): array
+    {
+        return $this->tracked;
+    }
 }

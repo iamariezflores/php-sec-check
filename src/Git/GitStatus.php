@@ -23,4 +23,11 @@ interface GitStatus
      * tracked. Uses `git check-ignore --no-index` semantics.
      */
     public function isIgnoredByRules(string $relativePath): bool;
+
+    /**
+     * Paths currently in the index, relative to the work tree, with forward slashes.
+     *
+     * @return list<string>
+     */
+    public function trackedFiles(): array;
 }

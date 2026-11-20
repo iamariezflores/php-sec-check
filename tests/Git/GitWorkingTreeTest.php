@@ -16,6 +16,7 @@ class GitWorkingTreeTest extends TestCase
             $git = new GitWorkingTree($dir);
             $this->assertFalse($git->isRepository());
             $this->assertFalse($git->isTracked('.env'));
+            $this->assertSame([], $git->trackedFiles());
         } finally {
             rmdir($dir);
         }
