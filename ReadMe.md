@@ -35,6 +35,7 @@ These run on **any** PHP project:
 | Dangerous Functions | Configuration: whether shell-execution functions are listed in `disable_functions` |
 | Unsafe Function Usage | Source: whether risky functions are used in application PHP, and whether they receive untrusted input |
 | Directory Exposure | Sensitive files and directories sitting in the document root (`public/`, or a project-root `index.php`) |
+| Secret Exposure | `.env` committed or left on a public web path, live secrets in `.env.example`, hardcoded keys in configuration files, committed private keys, and recognizable AWS / Stripe / GitHub / Slack / Google / SendGrid tokens. A normal `APP_KEY` in `.env` is not a finding |
 | Session Security | php.ini session hardening (`use_strict_mode`, `use_only_cookies`, `use_trans_sid`, SID entropy). Laravel `config/session.php` only when Laravel is detected |
 | Cookie Flags | `setcookie()` / `setrawcookie()` options, `session.cookie_secure` / `httponly` / `samesite`, and Laravel session cookie flags |
 | File Upload | `move_uploaded_file()` destinations that keep the client filename, skip an extension/MIME allow-list, or write under `public/` |
@@ -115,6 +116,28 @@ A Laravel `public/storage` **symlink** (`php artisan storage:link`) is skipped. 
 | Path is also tracked by git | promoted to `CRITICAL` |
 | `public/.env` | not this check — `EnvCredentialsCheck` |
 | Project-root `vendor/` next to Laravel `public/` | not this check — `VendorCheck` |
+
+#### Secret exposure
+
+`EnvCredentialsCheck` runs on every project. A filled `APP_KEY`, database password, or API token **inside `.env` is expected** — Laravel cannot boot without `APP_KEY`. The finding is exposure: the file was committed, a copy is on a public path, or the value was copied somewhere that ships with the application.
+
+| Finding | Severity |
+|---|---|
+| `.env` (or `.env.local`, `.env.production`, `.env.bak`, …) is **tracked by git**, at the root or in a subdirectory | `CRITICAL` |
+| That file is listed in ignore rules but **still in the index** | `CRITICAL` — `git rm --cached <path>` |
+| The file exists and is **not ignored** | `WARN` |
+| `.env` under a common document root: `public/`, `public_html/`, `www/`, `web/`, `html/`, `htdocs/`, `httpdocs/`, `webroot/`, `storage/app/public/` | `CRITICAL` |
+| `.env` next to a root `index.php` when `public/index.php` does not exist | `CRITICAL` |
+| `.env.example`, `.env.sample`, `.env.template`, or `.env.dist` contains a real secret | `CRITICAL` |
+| A sensitive key or recognizable token hardcoded in a configuration file (`config/*`, `wp-config.php`, `config.php`, …) | `CRITICAL` |
+| `id_rsa`, `id_ed25519`, `*.p12`, `*private*.key`, or a `BEGIN … PRIVATE KEY` block is **tracked** | `CRITICAL` |
+| That private key exists and is **not ignored** | `WARN` |
+| AWS, Stripe, GitHub, Slack, Google, or SendGrid token in a **tracked** source file | `CRITICAL` |
+| Same token in source that is **not ignored** | `WARN` |
+| Weak values such as `DB_PASSWORD=password` | `WARN` |
+| Empty `APP_KEY` | `WARN` |
+
+Git exclusion uses `git ls-files` and `git check-ignore --no-index`, not a text search of `.gitignore`. A secret that stays in an ignored `.env` is not reported. `env('APP_KEY')` in `config/app.php` is not reported. A commented-out token is not reported.
 
 #### Session security
 
@@ -235,22 +258,8 @@ Auto-detected when `artisan` and `bootstrap/app.php` are present. Session **driv
 |---|---|
 | `APP_DEBUG` Check | Warns if `APP_DEBUG=true`, critical if combined with `APP_ENV=production` |
 | Default Credentials | Warns if `DB_USERNAME` uses a default value (`root`, `admin`, etc.) or `DB_PASSWORD` is empty |
-| `.env` Credentials | Flags leaked or mis-tracked env files, weak credentials, and secrets in `.env.example` — not a normally configured `.env` |
+| Secret exposure | Same check as every other PHP project. See **Secret exposure** above. A filled `APP_KEY` in `.env` is still not a finding |
 | Vendor in Git | Warns if `vendor/` is not excluded in `.gitignore` |
-
-A filled `APP_KEY` or `DB_PASSWORD` in `.env` is expected Laravel configuration and is **not** reported. The check looks for real exposure instead:
-
-| Finding | Severity |
-|---|---|
-| `.env` (or `.env.local`, `.env.production`, …) is **tracked by git** | `CRITICAL` |
-| `.env` is listed in `.gitignore` but **still in the index** | `CRITICAL` — run `git rm --cached .env` |
-| `.env` exists and is **not ignored** | `WARN` |
-| `public/.env` or `.env` next to a root `index.php` | `CRITICAL` |
-| Weak values such as `DB_PASSWORD=password` | `WARN` |
-| Empty `APP_KEY` | `WARN` |
-| `.env.example` contains a real-looking secret | `CRITICAL` |
-
-Git exclusion is verified with `git ls-files` and `git check-ignore --no-index`, not by searching `.gitignore` for the string `.env`. A file that was committed before the ignore rule was added is still treated as tracked.
 
 ### Severity Levels
 
@@ -412,6 +421,13 @@ composer.json require.php: >=8.2 (floor 8.2.0)
 [UNSERIALIZE]
 [CRITICAL] unserialize() receives untrusted input in cache.php:1.
 
+[ENV CREDENTIALS]
+[CRITICAL] .env is listed in ignore rules but is still tracked by git. Remove it from the index with `git rm --cached .env`.
+[CRITICAL] public/.env exists and is inside a web-accessible directory. Move secrets out of the document root.
+[CRITICAL] .env.example contains what looks like a real secret for 'APP_KEY' (value like 'base****'). Template files must not include live credentials.
+[CRITICAL] config/services.php contains a hardcoded Stripe secret key (value like 'sk_l****'). A secret in .env is expected; this copy is exposed with the application.
+[CRITICAL] id_rsa is tracked by git. Private keys must not be committed.
+
 Laravel project detected!
 [APP DEBUG]
 [CRITICAL] APP_DEBUG is enabled while APP_ENV is set to "production". This exposes stack traces and environment data to end users.
@@ -419,11 +435,6 @@ Laravel project detected!
 [DEFAULT CREDENTIALS]
 [WARN] DB_USERNAME is set to 'root'. Using default database usernames is a security risk.
 [CRITICAL] DB_PASSWORD is empty or null. A database without a password is a critical security risk.
-
-[ENV CREDENTIALS]
-[CRITICAL] .env is listed in ignore rules but is still tracked by git. Remove it from the index with `git rm --cached .env`.
-[CRITICAL] public/.env exists and is inside a web-accessible directory. Move secrets out of the document root.
-[CRITICAL] .env.example contains what looks like a real secret for 'APP_KEY' (value like 'base****'). Template files must not include live credentials.
 
 Scan complete.
 ```
@@ -479,7 +490,7 @@ vendor/bin/sec-check --format=json > security-report.json
 
 ## Configuration
 
-On first run, `php-sec-check` automatically creates a `php-sec-check-config.php` file at your project root. Add extra key names here if you store secrets under custom env keys. Those names are used to detect **weak values** in `.env` and **live secrets copied into `.env.example`**. They are not used to flag a normally configured `.env`.
+On first run, `php-sec-check` automatically creates a `php-sec-check-config.php` file at your project root. Add extra key names here if you store secrets under custom env keys. Those names are used to detect **weak values** in `.env`, **live secrets copied into templates**, and **hardcoded assignments in configuration files**. They are not used to flag a filled value in `.env`. Recognizable AWS, Stripe, GitHub, Slack, Google, and SendGrid tokens are detected even when the variable name is not listed.
 
 ```php
 <?php

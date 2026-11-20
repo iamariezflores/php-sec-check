@@ -27,6 +27,24 @@ class GitWorkingTree implements GitStatus
         return $exit === 0;
     }
 
+    public function trackedFiles(): array
+    {
+        [$exit, $output] = $this->git(['ls-files', '--']);
+        if ($exit !== 0 || $output === '') {
+            return [];
+        }
+
+        $paths = [];
+        foreach (explode("\n", $output) as $path) {
+            $path = str_replace('\\', '/', trim($path));
+            if ($path !== '') {
+                $paths[] = $path;
+            }
+        }
+
+        return $paths;
+    }
+
     /**
      * @param list<string> $args
      * @return array{0: int, 1: string}

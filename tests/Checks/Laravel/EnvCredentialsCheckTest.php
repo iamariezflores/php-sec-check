@@ -6,6 +6,7 @@ use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
 use Aquilinoflores\PhpSecCheck\Issue;
 use Aquilinoflores\PhpSecCheck\Tests\Support\FakeGitStatus;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class EnvCredentialsCheckTest extends TestCase
@@ -176,7 +177,7 @@ class EnvCredentialsCheckTest extends TestCase
 
         $result = $this->runCheck(new FakeGitStatus(repository: false));
 
-        $this->assertNotEmpty($result);
+        $this->assertCount(1, $result);
         $this->assertSame(Issue::CRITICAL, $result[0]->severity);
         $this->assertStringContainsString('public/.env', $result[0]->message);
         $this->assertStringContainsString('web-accessible', $result[0]->message);
@@ -297,6 +298,324 @@ class EnvCredentialsCheckTest extends TestCase
         $messages = array_map(fn(Issue $i) => $i->message, $result);
         $this->assertTrue((bool) array_filter($messages, fn($m) => str_contains($m, 'MY_SECRET_TOKEN')));
         $this->assertTrue((bool) array_filter($messages, fn($m) => str_contains($m, 'CUSTOM_API_KEY')));
+    }
+
+    public function test_secrets_inside_an_ignored_env_are_not_findings(): void
+    {
+        $this->writeEnv(implode("\n", [
+            'APP_KEY=base64:SomeSuperSecretKeyHere=',
+            'STRIPE_SECRET_KEY=sk_live_51ABCDEFGH1234567890',
+            'AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE',
+            '-----BEGIN RSA PRIVATE KEY-----',
+            'MIIEowIBAAKCAQEA',
+            '-----END RSA PRIVATE KEY-----',
+        ]));
+        mkdir($this->tempDir . '/config', 0777, true);
+        file_put_contents($this->tempDir . '/config/app.php', <<<'PHP'
+<?php
+return ['key' => env('APP_KEY'), 'cipher' => 'AES-256-CBC'];
+PHP);
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: [],
+            ignored: ['.env'],
+        ));
+
+        $this->assertEmpty($result, 'APP_KEY and other secrets inside an ignored .env are expected configuration.');
+    }
+
+    public function test_env_under_common_web_roots_is_critical(): void
+    {
+        foreach (['www', 'htdocs', 'web', 'public_html', 'storage/app/public', 'public/backup'] as $dir) {
+            mkdir($this->tempDir . '/' . $dir, 0777, true);
+        }
+        file_put_contents($this->tempDir . '/www/.env', "APP_KEY=base64:SomeSuperSecretKeyHere=\n");
+        file_put_contents($this->tempDir . '/htdocs/.env.bak', "APP_KEY=base64:SomeSuperSecretKeyHere=\n");
+        file_put_contents($this->tempDir . '/web/.env', "APP_KEY=base64:SomeSuperSecretKeyHere=\n");
+        file_put_contents($this->tempDir . '/public_html/.env', "APP_KEY=base64:SomeSuperSecretKeyHere=\n");
+        file_put_contents($this->tempDir . '/storage/app/public/.env', "APP_KEY=base64:SomeSuperSecretKeyHere=\n");
+        file_put_contents($this->tempDir . '/public/backup/.env', "APP_KEY=base64:SomeSuperSecretKeyHere=\n");
+
+        $result = $this->runCheck(new FakeGitStatus(repository: false));
+
+        $this->assertCount(6, $result);
+        $messages = array_map(fn(Issue $issue) => $issue->message, $result);
+        foreach (['www/.env', 'htdocs/.env.bak', 'web/.env', 'public_html/.env', 'storage/app/public/.env', 'public/backup/.env'] as $path) {
+            $this->assertTrue(
+                (bool) array_filter($messages, fn(string $message) => str_contains($message, $path) && str_contains($message, 'web-accessible')),
+                "Expected a web-accessible finding for {$path}."
+            );
+        }
+    }
+
+    public function test_nested_tracked_env_is_critical(): void
+    {
+        mkdir($this->tempDir . '/secrets', 0777, true);
+        file_put_contents($this->tempDir . '/secrets/.env', "APP_KEY=base64:SomeSuperSecretKeyHere=\n");
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: ['secrets/.env'],
+            ignored: ['secrets/.env'],
+        ));
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertStringContainsString('secrets/.env', $result[0]->message);
+        $this->assertStringContainsString('still tracked', $result[0]->message);
+        $this->assertStringContainsString('git rm --cached secrets/.env', $result[0]->message);
+    }
+
+    public function test_hardcoded_app_key_in_config_is_critical(): void
+    {
+        $this->writeEnv("APP_KEY=base64:SomeSuperSecretKeyHere=\n");
+        mkdir($this->tempDir . '/config', 0777, true);
+        file_put_contents($this->tempDir . '/config/app.php', <<<'PHP'
+<?php
+return [
+    'APP_KEY' => 'base64:SomeSuperSecretKeyHere=',
+    'cipher' => 'AES-256-CBC',
+];
+PHP);
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: [],
+            ignored: ['.env'],
+        ));
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertStringContainsString('config/app.php', $result[0]->message);
+        $this->assertStringContainsString('APP_KEY', $result[0]->message);
+        $this->assertStringNotContainsString('SomeSuperSecretKeyHere', $result[0]->message);
+    }
+
+    public function test_config_that_reads_env_is_clean(): void
+    {
+        $this->writeEnv("APP_KEY=base64:SomeSuperSecretKeyHere=\n");
+        mkdir($this->tempDir . '/config', 0777, true);
+        file_put_contents($this->tempDir . '/config/app.php', <<<'PHP'
+<?php
+return ['key' => env('APP_KEY'), 'cipher' => 'AES-256-CBC'];
+PHP);
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: [],
+            ignored: ['.env'],
+        ));
+
+        $this->assertEmpty($result);
+    }
+
+    public function test_commented_secret_in_config_is_clean(): void
+    {
+        mkdir($this->tempDir . '/config', 0777, true);
+        file_put_contents($this->tempDir . '/config/services.php', <<<'PHP'
+<?php
+return [
+    // 'secret' => 'sk_live_51ABCDEFGH1234567890',
+    'secret' => env('STRIPE_SECRET'),
+];
+PHP);
+
+        $result = $this->runCheck(new FakeGitStatus(repository: false));
+
+        $this->assertEmpty($result);
+    }
+
+    public function test_wp_config_stripe_key_is_critical(): void
+    {
+        file_put_contents($this->tempDir . '/wp-config.php', <<<'PHP'
+<?php
+$stripe = 'sk_live_51ABCDEFGH1234567890';
+PHP);
+
+        $result = $this->runCheck(new FakeGitStatus(repository: false));
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertStringContainsString('wp-config.php', $result[0]->message);
+        $this->assertStringContainsString('Stripe', $result[0]->message);
+        $this->assertStringNotContainsString('sk_live_51ABCDEFGH1234567890', $result[0]->message);
+    }
+
+    public function test_tracked_source_with_aws_secret_is_critical(): void
+    {
+        mkdir($this->tempDir . '/src', 0777, true);
+        file_put_contents($this->tempDir . '/src/pay.php', <<<'PHP'
+<?php
+$aws_secret = 'AbcdEfgh1234+/IJKL5678mnopQRSTuvwxYZ9012';
+PHP);
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: ['src/pay.php'],
+        ));
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertStringContainsString('src/pay.php', $result[0]->message);
+        $this->assertStringContainsString('tracked by git', $result[0]->message);
+        $this->assertStringContainsString('AWS secret access key', $result[0]->message);
+        $this->assertStringNotContainsString('AbcdEfgh1234+/IJKL5678mnopQRSTuvwxYZ9012', $result[0]->message);
+    }
+
+    public function test_untracked_source_secret_warns_when_not_ignored(): void
+    {
+        mkdir($this->tempDir . '/src', 0777, true);
+        file_put_contents($this->tempDir . '/src/pay.php', <<<'PHP'
+<?php
+$k = 'AKIAIOSFODNN7EXAMPLE';
+PHP);
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: [],
+            ignored: [],
+        ));
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::WARN, $result[0]->severity);
+        $this->assertStringContainsString('src/pay.php', $result[0]->message);
+        $this->assertStringContainsString('not excluded from git tracking', $result[0]->message);
+    }
+
+    public function test_ignored_source_secret_is_clean(): void
+    {
+        mkdir($this->tempDir . '/src', 0777, true);
+        file_put_contents($this->tempDir . '/src/pay.php', <<<'PHP'
+<?php
+$k = 'AKIAIOSFODNN7EXAMPLE';
+PHP);
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: [],
+            ignored: ['src/pay.php'],
+        ));
+
+        $this->assertEmpty($result);
+    }
+
+    public function test_private_key_file_tracked_is_critical(): void
+    {
+        file_put_contents($this->tempDir . '/id_rsa', "-----BEGIN OPENSSH PRIVATE KEY-----\n");
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: ['id_rsa'],
+        ));
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertStringContainsString('id_rsa', $result[0]->message);
+        $this->assertStringContainsString('tracked by git', $result[0]->message);
+        $this->assertStringContainsString('Private keys must not be committed', $result[0]->message);
+    }
+
+    public function test_ignored_private_key_file_is_clean(): void
+    {
+        mkdir($this->tempDir . '/storage', 0777, true);
+        file_put_contents($this->tempDir . '/storage/oauth-private.key', "-----BEGIN PRIVATE KEY-----\n");
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: [],
+            ignored: ['storage/oauth-private.key'],
+        ));
+
+        $this->assertEmpty($result);
+    }
+
+    public function test_unignored_private_key_file_warns(): void
+    {
+        file_put_contents($this->tempDir . '/id_ed25519', "-----BEGIN OPENSSH PRIVATE KEY-----\n");
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: [],
+            ignored: [],
+        ));
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::WARN, $result[0]->severity);
+        $this->assertStringContainsString('id_ed25519', $result[0]->message);
+        $this->assertStringContainsString('not excluded from git tracking', $result[0]->message);
+    }
+
+    public function test_public_certificate_is_not_a_private_key(): void
+    {
+        mkdir($this->tempDir . '/certs', 0777, true);
+        file_put_contents($this->tempDir . '/certs/server.pem', "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n");
+
+        $result = $this->runCheck(new FakeGitStatus(
+            repository: true,
+            tracked: ['certs/server.pem'],
+        ));
+
+        $this->assertEmpty($result);
+    }
+
+    public function test_private_key_material_in_config_is_critical(): void
+    {
+        mkdir($this->tempDir . '/config', 0777, true);
+        file_put_contents($this->tempDir . '/config/keys.php', <<<'PHP'
+<?php
+return ['key' => '-----BEGIN RSA PRIVATE KEY-----'];
+PHP);
+
+        $result = $this->runCheck(new FakeGitStatus(repository: false));
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertStringContainsString('config/keys.php', $result[0]->message);
+        $this->assertStringContainsString('private key', $result[0]->message);
+    }
+
+    public function test_private_key_in_env_example_is_critical(): void
+    {
+        file_put_contents($this->tempDir . '/.env.example', "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----\n");
+
+        $result = $this->runCheck(new FakeGitStatus(repository: false));
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertStringContainsString('.env.example', $result[0]->message);
+        $this->assertStringContainsString('private key', $result[0]->message);
+    }
+
+    #[DataProvider('recognizableSecretProvider')]
+    public function test_template_recognizable_secret_is_critical_even_if_key_is_unknown(string $value, string $label): void
+    {
+        file_put_contents(
+            $this->tempDir . '/php-sec-check-config.php',
+            "<?php return ['sensitive_keys' => ['APP_KEY']];"
+        );
+        file_put_contents($this->tempDir . '/.env.example', "UNLISTED_TOKEN={$value}\n");
+
+        $result = $this->runCheck(new FakeGitStatus(repository: false));
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertStringContainsString('.env.example', $result[0]->message);
+        $this->assertStringContainsString($label, $result[0]->message);
+        $this->assertStringNotContainsString($value, $result[0]->message);
+    }
+
+    public static function recognizableSecretProvider(): array
+    {
+        return [
+            'stripe'   => ['sk_live_51ABCDEFGH1234567890', 'Stripe'],
+            'aws'      => ['AKIAIOSFODNN7EXAMPLE', 'AWS'],
+            'github'   => ['ghp_' . str_repeat('a', 36), 'GitHub'],
+            'slack'    => ['xoxb-1234567890-abcdefghij', 'Slack'],
+            'google'   => ['AIza' . str_repeat('A', 35), 'Google'],
+            'sendgrid' => ['SG.' . str_repeat('a', 22) . '.' . str_repeat('b', 22), 'SendGrid'],
+            'app key'  => ['base64:SomeSuperSecretKeyHere=', 'Laravel application key'],
+        ];
     }
 
     public function test_always_returns_array(): void

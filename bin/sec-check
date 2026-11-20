@@ -59,8 +59,10 @@ if (!file_exists($configFile)) {
     $template = <<<PHP
 <?php
 return [
-    // Keys scanned for weak/empty values and for accidental secrets in .env.example.
-    // A normally configured .env is expected and is not flagged.
+    // Names checked for weak values in .env, live values in templates, and
+    // hardcoded assignments in configuration files.
+    // A filled APP_KEY inside .env is expected and is not a finding.
+    // Recognizable provider tokens are detected even when the name is not listed.
     'sensitive_keys' => [
         'APP_KEY',
         'DB_PASSWORD',
@@ -87,6 +89,7 @@ $checks = [
     new DangerousFunctionsCheck(),
     new UnsafeFunctionUsageCheck(),
     new DirectoryExposureCheck(),
+    new EnvCredentialsCheck(),
     new SessionSecurityCheck(),
     new CookieFlagsCheck(),
     new FileUploadCheck(),
@@ -107,13 +110,11 @@ if ($isLaravel) {
 
     $appDebugCheck           = new AppDebugCheck();
     $defaultCredentialsCheck = new DefaultCredentialsCheck();
-    $envCheck                = new EnvCredentialsCheck();
     $vendorCheck             = new VendorCheck();
 
     $laravelIssues = array_merge(
         $appDebugCheck->run($projectRoot),
         $defaultCredentialsCheck->run($projectRoot),
-        $envCheck->run($projectRoot),
         $vendorCheck->run($projectRoot)
     );
 
