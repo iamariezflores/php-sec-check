@@ -159,6 +159,17 @@ class DefaultCredentialsCheckTest extends TestCase
         $this->assertEmpty($localhostIssues);
     }
 
+    public function test_quoted_default_username_and_empty_password(): void
+    {
+        $this->writeEnv("DB_USERNAME=\"root\"\nDB_PASSWORD=\"\"\nDB_HOST=\"127.0.0.1\"\n");
+
+        $result = $this->runSilently($this->tempDir);
+
+        $this->assertNotEmpty(array_filter($result, fn($i) => str_contains($i->message, "DB_USERNAME is set to 'root'")));
+        $this->assertNotEmpty(array_filter($result, fn($i) => $i->severity === Issue::CRITICAL && str_contains($i->message, 'DB_PASSWORD')));
+        $this->assertNotEmpty(array_filter($result, fn($i) => str_contains($i->message, '127.0.0.1')));
+    }
+
     public function test_issue_objects_all_have_correct_check_name(): void
     {
         $this->writeEnv("DB_USERNAME=root\nDB_PASSWORD=\nDB_HOST=localhost\n");

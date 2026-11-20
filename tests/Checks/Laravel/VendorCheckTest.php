@@ -81,6 +81,26 @@ class VendorCheckTest extends TestCase
         $this->assertEmpty($result);
     }
 
+    public function test_no_warning_when_gitignore_lists_vendor_without_a_slash(): void
+    {
+        mkdir($this->tempDir . '/vendor', 0777, true);
+        file_put_contents($this->tempDir . '/.gitignore', "vendor\n");
+
+        $result = $this->check->run($this->tempDir);
+        $this->assertEmpty($result);
+    }
+
+    public function test_warns_when_vendor_appears_only_in_a_comment(): void
+    {
+        mkdir($this->tempDir . '/vendor', 0777, true);
+        file_put_contents($this->tempDir . '/.gitignore', "# keep vendor/ out of the web root\n");
+
+        $result = $this->check->run($this->tempDir);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::WARN, $result[0]->severity);
+    }
+
     public function test_warning_message_mentions_gitignore(): void
     {
         mkdir($this->tempDir . '/vendor', 0777, true);

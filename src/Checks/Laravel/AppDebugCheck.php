@@ -27,17 +27,16 @@ class AppDebugCheck implements CheckInterface
             return $issues;
         }
 
-        $contents = file_get_contents($envFile);
+        $contents = (string) file_get_contents($envFile);
 
-        $debug = null;
-        $env   = null;
+        $debug = $this->envValue($contents, 'APP_DEBUG');
+        $env   = $this->envValue($contents, 'APP_ENV');
 
-        if (preg_match('/^APP_DEBUG=(.+)/m', $contents, $m)) {
-            $debug = strtolower(trim($m[1]));
+        if ($debug !== null) {
+            $debug = strtolower($debug);
         }
-
-        if (preg_match('/^APP_ENV=(.+)/m', $contents, $m)) {
-            $env = strtolower(trim($m[1]));
+        if ($env !== null) {
+            $env = strtolower($env);
         }
 
         $debugEnabled = in_array($debug, ['true', '1', 'on'], true);
@@ -65,5 +64,29 @@ class AppDebugCheck implements CheckInterface
 
         echo "\n";
         return $issues;
+    }
+
+    private function envValue(string $contents, string $key): ?string
+    {
+        if (!preg_match('/^' . preg_quote($key, '/') . '=(.*)$/m', $contents, $matches)) {
+            return null;
+        }
+
+        return $this->unquote(trim($matches[1]));
+    }
+
+    private function unquote(string $value): string
+    {
+        $value = trim($value);
+        $length = strlen($value);
+        if ($length >= 2) {
+            $first = $value[0];
+            $last  = $value[$length - 1];
+            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                $value = substr($value, 1, -1);
+            }
+        }
+
+        return trim($value);
     }
 }

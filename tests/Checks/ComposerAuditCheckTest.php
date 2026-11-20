@@ -87,13 +87,19 @@ class ComposerAuditCheckTest extends TestCase
         $this->assertIsArray($result);
     }
 
-    public function test_returns_empty_when_no_advisories_found(): void
+    public function test_warns_when_composer_audit_cannot_read_the_lock(): void
     {
-        $lockContent = json_encode(['packages' => [], 'packages-dev' => []]);
-        file_put_contents($this->tempDir . '/composer.lock', $lockContent);
+        file_put_contents(
+            $this->tempDir . '/composer.lock',
+            json_encode(['packages' => [], 'packages-dev' => []])
+        );
 
         $result = $this->runSilently($this->tempDir);
-        $this->assertEmpty($result);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::WARN, $result[0]->severity);
+        $this->assertSame('ComposerAuditCheck', $result[0]->check);
+        $this->assertStringContainsString('could not be completed', $result[0]->message);
     }
 
     public function test_returns_issue_objects(): void
