@@ -151,6 +151,17 @@ class AppDebugCheckTest extends TestCase
         $this->assertEmpty($this->runSilently($this->tempDir));
     }
 
+    public function test_critical_when_debug_and_env_are_quoted(): void
+    {
+        $this->writeEnv("APP_DEBUG=\"true\"\nAPP_ENV=\"production\"\n");
+
+        $result = $this->runSilently($this->tempDir);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertStringContainsString('production', $result[0]->message);
+    }
+
     public function test_always_returns_array(): void
     {
         $this->writeEnv("APP_DEBUG=false\n");

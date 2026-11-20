@@ -173,6 +173,11 @@ class SqlInjectionCheck implements CheckInterface
                 continue;
             }
 
+            // PHP's exec() runs a shell command. Only object/static exec() is SQL.
+            if ($name === 'exec' && empty($call['method'])) {
+                continue;
+            }
+
             $index = $this->sqlArgumentIndex($name, $args);
             if (!isset($args[$index])) {
                 continue;

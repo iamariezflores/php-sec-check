@@ -138,7 +138,7 @@ class CookieFlagsCheck implements CheckInterface
                     continue;
                 }
 
-                $list = implode(', ', $missing);
+                $list = $this->missingList($missing);
                 $this->add(
                     $issues,
                     Issue::WARN,
@@ -513,6 +513,24 @@ class CookieFlagsCheck implements CheckInterface
     private function boolIni(string $key): bool
     {
         return filter_var($this->ini($key), FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
+     * @param list<string> $missing
+     */
+    private function missingList(array $missing): string
+    {
+        if (count($missing) <= 1) {
+            return $missing[0] ?? '';
+        }
+
+        if (count($missing) === 2) {
+            return $missing[0] . ' and ' . $missing[1];
+        }
+
+        $last = array_pop($missing);
+
+        return implode(', ', $missing) . ', and ' . $last;
     }
 
     /**

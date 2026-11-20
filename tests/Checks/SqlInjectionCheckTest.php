@@ -238,6 +238,27 @@ PHP
         $this->assertSame([], $this->runCheck());
     }
 
+    public function test_php_exec_with_untrusted_input_is_not_sql(): void
+    {
+        file_put_contents($this->tempDir . '/job.php', "<?php exec(\$_GET['cmd']);\n");
+
+        $this->assertSame([], $this->runCheck());
+    }
+
+    public function test_pdo_exec_with_concatenated_sql_is_critical(): void
+    {
+        file_put_contents(
+            $this->tempDir . '/query.php',
+            "<?php \$pdo->exec('DELETE FROM users WHERE id = ' . \$_GET['id']);\n"
+        );
+
+        $issues = $this->runCheck();
+
+        $this->assertCount(1, $issues);
+        $this->assertSame(Issue::CRITICAL, $issues[0]->severity);
+        $this->assertStringContainsString('exec()', $issues[0]->message);
+    }
+
     public function test_vendor_files_are_skipped(): void
     {
         mkdir($this->tempDir . '/vendor', 0777, true);

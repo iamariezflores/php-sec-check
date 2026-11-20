@@ -76,9 +76,24 @@ class DefaultCredentialsCheck implements CheckInterface
 
     private function getValue(string $key, string $contents): ?string
     {
-        if (preg_match('/^' . preg_quote($key, '/') . '=(.*)/m', $contents, $matches)) {
-            return trim($matches[1]);
+        if (preg_match('/^' . preg_quote($key, '/') . '=(.*)$/m', $contents, $matches)) {
+            return $this->unquote(trim($matches[1]));
         }
         return null;
+    }
+
+    private function unquote(string $value): string
+    {
+        $value = trim($value);
+        $length = strlen($value);
+        if ($length >= 2) {
+            $first = $value[0];
+            $last  = $value[$length - 1];
+            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                $value = substr($value, 1, -1);
+            }
+        }
+
+        return trim($value);
     }
 }

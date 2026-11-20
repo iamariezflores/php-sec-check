@@ -49,7 +49,7 @@ class PhpFunctionCallScanner
 
     /**
      * @param list<string> $functionNames
-     * @return list<array{function: string, line: int, via: string, arguments: list<list<string|array{0: int, 1: string, 2: int}>>}>
+     * @return list<array{function: string, line: int, via: string, method: bool, arguments: list<list<string|array{0: int, 1: string, 2: int}>>}>
      */
     public function findCallsWithArguments(string $source, array $functionNames, bool $includeMethods = false): array
     {
@@ -71,6 +71,7 @@ class PhpFunctionCallScanner
                     'function'  => 'shell_exec',
                     'line'      => $inner['line'],
                     'via'       => 'backtick',
+                    'method'    => false,
                     'arguments' => [$inner['tokens']],
                 ];
                 for ($j = $i + 1; $j < $count; $j++) {
@@ -90,6 +91,7 @@ class PhpFunctionCallScanner
                         'function'  => 'eval',
                         'line'      => $token[2],
                         'via'       => 'call',
+                        'method'    => false,
                         'arguments' => $this->splitArguments($args),
                     ];
                 }
@@ -119,6 +121,7 @@ class PhpFunctionCallScanner
                 'function'  => $name,
                 'line'      => $token[2],
                 'via'       => 'call',
+                'method'    => $this->isMethodOrQualifiedName($tokens, $i),
                 'arguments' => $this->splitArguments($args),
             ];
         }
