@@ -3,7 +3,7 @@
 namespace Aquilinoflores\PhpSecCheck\Checks;
 
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
+use Aquilinoflores\PhpSecCheck\Php\ProjectPhpSettings;
 
 /**
  * Configuration check: whether shell-execution functions that *can* be
@@ -20,6 +20,10 @@ class DangerousFunctionsCheck implements CheckInterface
      *
      * @var list<string>
      */
+    public const RULE_ID = 'PSC-RUN-020';
+
+    public const RECOMMENDATION = 'If the application does not need a shell, list the function in disable_functions in the project .user.ini or .htaccess. This check only reports a list the project itself writes.';
+
     public const DISABLE_CANDIDATES = [
         'exec',
         'shell_exec',
@@ -33,30 +37,44 @@ class DangerousFunctionsCheck implements CheckInterface
 
     public function run(string $projectRoot): array
     {
-        $issues   = [];
-        $disabled = $this->parseDisabledList($this->disabledFunctions ?? (string) ini_get('disable_functions'));
+        $path = null;
+        $line = null;
 
-        echo "[DANGEROUS FUNCTIONS]\n";
+        if ($this->disabledFunctions !== null) {
+            $disabled = $this->parseDisabledList($this->disabledFunctions);
+        } else {
+            if ($projectRoot === '' || !is_dir($projectRoot)) {
+                return [];
+            }
+            $directives = ProjectPhpSettings::load($projectRoot)->directives('disable_functions');
+            if ($directives === []) {
+                return [];
+            }
+            $directive = $directives[array_key_last($directives)];
+            $disabled = $this->parseDisabledList($directive->value);
+            $path = $directive->path;
+            $line = $directive->line;
+        }
 
+        $issues = [];
         foreach (self::DISABLE_CANDIDATES as $fn) {
             if (in_array($fn, $disabled, true)) {
                 continue;
             }
 
-            $issue = new Issue(
+            $where = $path === null ? '' : " in {$path}:{$line}";
+            $issues[] = new Issue(
                 Issue::WARN,
-                "Shell-execution function '{$fn}' is not listed in disable_functions. Disable it in production php.ini.",
-                'DangerousFunctionsCheck'
+                "Shell-execution function '{$fn}' is not listed in disable_functions{$where}.",
+                'DangerousFunctionsCheck',
+                self::RULE_ID,
+                $path === null ? Issue::HEURISTIC : Issue::CONFIRMED,
+                self::RECOMMENDATION,
+                $path,
+                $line,
             );
-            $issues[] = $issue;
-            Output::issue($issue);
         }
 
-        if (empty($issues)) {
-            Output::ok('Shell-execution functions are listed in disable_functions.');
-        }
-
-        echo "\n";
         return $issues;
     }
 

@@ -1,0 +1,40 @@
+#!/usr/bin/env php
+<?php
+
+$autoloadCandidates = [
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+
+$autoloaderFound = false;
+foreach ($autoloadCandidates as $candidate) {
+    if (file_exists($candidate)) {
+        require $candidate;
+        $autoloaderFound = true;
+        break;
+    }
+}
+
+if (!$autoloaderFound) {
+    $src = dirname(__DIR__) . '/src';
+    if (!is_file($src . '/Cli/Application.php')) {
+        fwrite(STDERR, "Could not find autoloader. Run 'composer install' first.\n");
+        exit(1);
+    }
+
+    spl_autoload_register(static function (string $class) use ($src): void {
+        $prefix = 'Aquilinoflores\\PhpSecCheck\\';
+        if (!str_starts_with($class, $prefix)) {
+            return;
+        }
+
+        $file = $src . '/' . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
+        if (is_file($file)) {
+            require $file;
+        }
+    });
+}
+
+use Aquilinoflores\PhpSecCheck\Cli\Application;
+
+exit((new Application())->run($argv));

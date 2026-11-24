@@ -58,12 +58,12 @@ class AppDebugCheckTest extends TestCase
         $this->assertEmpty($result);
     }
 
-    public function test_output_contains_header(): void
+    public function test_check_does_not_print(): void
     {
         ob_start();
         $this->check->run($this->tempDir);
         $output = ob_get_clean();
-        $this->assertStringContainsString('[APP DEBUG]', $output);
+        $this->assertSame('', $output);
     }
 
     public function test_critical_when_debug_true_and_env_production(): void

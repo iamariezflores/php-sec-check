@@ -3,7 +3,7 @@
 namespace Aquilinoflores\PhpSecCheck\Checks;
 
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
+use Aquilinoflores\PhpSecCheck\Php\ProjectPhpSettings;
 use Aquilinoflores\PhpSecCheck\Scan\PhpFunctionCallScanner;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -19,6 +19,9 @@ use SplFileInfo;
  */
 class CookieFlagsCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-RUN-040';
+
+    public const RECOMMENDATION = 'Set Secure, HttpOnly, and SameSite=Lax (or Strict) on session and authentication cookies. SameSite=None also requires Secure.';
     /**
      * @var array<string, string>
      */
@@ -42,28 +45,26 @@ class CookieFlagsCheck implements CheckInterface
     public function __construct(
         private readonly ?array $cookieIni = null,
         private readonly ?PhpFunctionCallScanner $scanner = null,
+        private readonly bool $frameworkExtras = true,
     ) {}
 
     public function run(string $projectRoot): array
     {
         $issues = [];
 
-        echo "[COOKIE FLAGS]\n";
-
-        $this->checkIni($issues);
+        if ($this->cookieIni !== null) {
+            $this->checkIni($issues);
+        } else {
+            $this->checkProject($projectRoot, $issues);
+        }
 
         if ($projectRoot !== '' && is_dir($projectRoot)) {
             $this->checkSource($projectRoot, $issues);
-            if ($this->isLaravel($projectRoot)) {
+            if ($this->frameworkExtras && $this->isLaravel($projectRoot)) {
                 $this->checkLaravel($projectRoot, $issues);
             }
         }
 
-        if ($issues === []) {
-            Output::ok('Cookie flags look locked down.');
-        }
-
-        echo "\n";
         return $issues;
     }
 
@@ -76,7 +77,8 @@ class CookieFlagsCheck implements CheckInterface
             $this->add(
                 $issues,
                 Issue::CRITICAL,
-                'session.cookie_httponly is disabled. JavaScript can read the session cookie. Set session.cookie_httponly=1.'
+                'session.cookie_httponly is disabled. JavaScript can read the session cookie. Set session.cookie_httponly=1.',
+                Issue::HEURISTIC,
             );
         }
 
@@ -84,7 +86,8 @@ class CookieFlagsCheck implements CheckInterface
             $this->add(
                 $issues,
                 Issue::WARN,
-                'session.cookie_secure is disabled. The session cookie can be sent over HTTP. Set session.cookie_secure=1.'
+                'session.cookie_secure is disabled. The session cookie can be sent over HTTP. Set session.cookie_secure=1.',
+                Issue::HEURISTIC,
             );
         }
 
@@ -93,13 +96,15 @@ class CookieFlagsCheck implements CheckInterface
             $this->add(
                 $issues,
                 Issue::WARN,
-                'session.cookie_samesite is not set. Set it to Lax or Strict to reduce CSRF risk.'
+                'session.cookie_samesite is not set. Set it to Lax or Strict to reduce CSRF risk.',
+                Issue::HEURISTIC,
             );
         } elseif ($sameSite === 'none' && !$this->boolIni('session.cookie_secure')) {
             $this->add(
                 $issues,
                 Issue::CRITICAL,
-                'session.cookie_samesite=None requires session.cookie_secure=1. Browsers will reject the cookie otherwise.'
+                'session.cookie_samesite=None requires session.cookie_secure=1. Browsers will reject the cookie otherwise.',
+                Issue::HEURISTIC,
             );
         }
     }
@@ -536,10 +541,71 @@ class CookieFlagsCheck implements CheckInterface
     /**
      * @param list<Issue> $issues
      */
-    private function add(array &$issues, string $severity, string $message): void
+    /**
+     * @param list<Issue> $issues
+     */
+    private function checkProject(string $projectRoot, array &$issues): void
     {
-        $issue = new Issue($severity, $message, 'CookieFlagsCheck');
-        $issues[] = $issue;
-        Output::issue($issue);
+        if ($projectRoot === '' || !is_dir($projectRoot)) {
+            return;
+        }
+
+        $settings = ProjectPhpSettings::load($projectRoot);
+        foreach ($settings->directives('session.cookie_httponly') as $directive) {
+            if ($directive->isDisabled()) {
+                $this->add($issues, Issue::CRITICAL, "session.cookie_httponly is disabled in {$directive->path}:{$directive->line}. JavaScript can read the session cookie. Set session.cookie_httponly=1.", Issue::CONFIRMED, $directive->path, $directive->line);
+            }
+        }
+        foreach ($settings->directives('session.cookie_secure') as $directive) {
+            if ($directive->isDisabled()) {
+                $this->add($issues, Issue::WARN, "session.cookie_secure is disabled in {$directive->path}:{$directive->line}. The session cookie can be sent over HTTP. Set session.cookie_secure=1.", Issue::CONFIRMED, $directive->path, $directive->line);
+            }
+        }
+        foreach ($settings->directives('session.cookie_samesite') as $directive) {
+            $value = strtolower(trim($directive->value, "\"'"));
+            if ($value === '' || $value === 'null') {
+                $this->add($issues, Issue::WARN, "session.cookie_samesite is empty in {$directive->path}:{$directive->line}. Set it to Lax or Strict.", Issue::CONFIRMED, $directive->path, $directive->line);
+                continue;
+            }
+            if ($value !== 'none') {
+                continue;
+            }
+            $secure = false;
+            foreach ($settings->directives('session.cookie_secure') as $secureDirective) {
+                if ($secureDirective->path === $directive->path && $secureDirective->isEnabled()) {
+                    $secure = true;
+                }
+            }
+            if (!$secure) {
+                $this->add($issues, Issue::CRITICAL, "session.cookie_samesite=None in {$directive->path}:{$directive->line} requires session.cookie_secure=1. Browsers will reject the cookie otherwise.", Issue::CONFIRMED, $directive->path, $directive->line);
+            }
+        }
+    }
+
+    /**
+     * @param list<Issue> $issues
+     */
+    private function add(
+        array &$issues,
+        string $severity,
+        string $message,
+        string $confidence = '',
+        ?string $path = null,
+        ?int $line = null,
+    ): void {
+        if ($confidence === '') {
+            $confidence = $severity === Issue::CRITICAL ? Issue::LIKELY : Issue::HEURISTIC;
+        }
+
+        $issues[] = new Issue(
+            $severity,
+            $message,
+            'CookieFlagsCheck',
+            self::RULE_ID,
+            $confidence,
+            self::RECOMMENDATION,
+            $path,
+            $line,
+        );
     }
 }

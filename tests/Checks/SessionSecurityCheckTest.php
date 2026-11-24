@@ -319,4 +319,33 @@ PHP);
             $this->assertSame('SessionSecurityCheck', $issue->check);
         }
     }
+
+    public function test_user_ini_use_trans_sid_is_critical(): void
+    {
+        file_put_contents($this->tempDir . '/.user.ini', "session.use_trans_sid = 1\n");
+
+        ob_start();
+        $result = (new SessionSecurityCheck())->run($this->tempDir);
+        ob_end_clean();
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertSame(Issue::CONFIRMED, $result[0]->confidence);
+        $this->assertStringContainsString('session.use_trans_sid is enabled', $result[0]->message);
+        $this->assertSame('.user.ini', $result[0]->path);
+    }
+
+    public function test_scanner_process_ini_is_not_a_session_finding(): void
+    {
+        $previous = ini_get('session.use_trans_sid');
+        ini_set('session.use_trans_sid', '1');
+
+        ob_start();
+        $result = (new SessionSecurityCheck())->run($this->tempDir);
+        ob_end_clean();
+
+        ini_set('session.use_trans_sid', $previous);
+
+        $this->assertSame([], $result);
+    }
 }

@@ -42,14 +42,12 @@ class JsonOutputTest extends TestCase
     }
 
     /**
+     * @param list<string> $extraArgs
      * @return array{exit: int, output: string, json: ?array}
      */
-    private function runSecCheck(string $projectRoot, string $format = 'json'): array
+    private function runSecCheck(string $projectRoot, array $extraArgs = ['--min-severity=info']): array
     {
-        $cmd = [PHP_BINARY, $this->binPath];
-        if ($format === 'json') {
-            $cmd[] = '--format=json';
-        }
+        $cmd = array_merge([PHP_BINARY, $this->binPath, '--format=json'], $extraArgs);
 
         $proc = proc_open(
             $cmd,
@@ -99,11 +97,15 @@ class JsonOutputTest extends TestCase
 
         $this->assertNotNull($result['json'], 'CLI must print valid JSON. Got: ' . $result['output']);
         $this->assertArrayHasKey('summary', $result['json']);
-        $this->assertArrayHasKey('issues', $result['json']);
+        $this->assertArrayHasKey('findings', $result['json']);
         $this->assertArrayHasKey('total', $result['json']['summary']);
         $this->assertArrayHasKey('critical', $result['json']['summary']);
-        $this->assertArrayHasKey('warn', $result['json']['summary']);
+        $this->assertArrayHasKey('high', $result['json']['summary']);
+        $this->assertArrayHasKey('medium', $result['json']['summary']);
+        $this->assertArrayHasKey('low', $result['json']['summary']);
         $this->assertArrayHasKey('info', $result['json']['summary']);
+        $this->assertArrayHasKey('hidden', $result['json']['summary']);
+        $this->assertArrayHasKey('threshold', $result['json']['summary']);
     }
 
     public function test_json_mode_suppresses_coloured_text_report(): void
@@ -121,17 +123,20 @@ class JsonOutputTest extends TestCase
 
     public function test_json_issues_have_severity_message_and_check(): void
     {
-        $this->makeLaravelProject("APP_KEY=base64:SomeSuperSecretKey=\n");
+        file_put_contents($this->tempDir . '/.env', "DB_PASSWORD=password\n");
 
         $result = $this->runSecCheck($this->tempDir);
-        $issues = $result['json']['issues'] ?? [];
+        $findings = $result['json']['findings'] ?? [];
 
-        $this->assertNotEmpty($issues);
-        foreach ($issues as $issue) {
-            $this->assertArrayHasKey('severity', $issue);
-            $this->assertArrayHasKey('message', $issue);
-            $this->assertArrayHasKey('check', $issue);
-            $this->assertContains($issue['severity'], ['CRITICAL', 'WARN', 'INFO']);
+        $this->assertNotEmpty($findings);
+        foreach ($findings as $finding) {
+            $this->assertArrayHasKey('severity', $finding);
+            $this->assertArrayHasKey('message', $finding);
+            $this->assertArrayHasKey('check', $finding);
+            $this->assertArrayHasKey('ruleId', $finding);
+            $this->assertArrayHasKey('confidence', $finding);
+            $this->assertArrayHasKey('recommendation', $finding);
+            $this->assertContains($finding['severity'], ['critical', 'high', 'medium', 'low', 'info']);
         }
     }
 
@@ -141,17 +146,25 @@ class JsonOutputTest extends TestCase
 
         $result  = $this->runSecCheck($this->tempDir);
         $summary = $result['json']['summary'];
-        $issues  = $result['json']['issues'];
+        $findings = $result['json']['findings'];
 
-        $critical = count(array_filter($issues, fn($i) => $i['severity'] === 'CRITICAL'));
-        $warn     = count(array_filter($issues, fn($i) => $i['severity'] === 'WARN'));
-        $info     = count(array_filter($issues, fn($i) => $i['severity'] === 'INFO'));
+        $critical = count(array_filter($findings, fn($i) => $i['severity'] === 'critical'));
+        $high     = count(array_filter($findings, fn($i) => $i['severity'] === 'high'));
+        $medium   = count(array_filter($findings, fn($i) => $i['severity'] === 'medium'));
+        $low      = count(array_filter($findings, fn($i) => $i['severity'] === 'low'));
+        $info     = count(array_filter($findings, fn($i) => $i['severity'] === 'info'));
 
-        $this->assertSame(count($issues), $summary['total']);
+        $this->assertSame(count($findings), $summary['total']);
         $this->assertSame($critical, $summary['critical']);
-        $this->assertSame($warn, $summary['warn']);
+        $this->assertSame($high, $summary['high']);
+        $this->assertSame($medium, $summary['medium']);
+        $this->assertSame($low, $summary['low']);
         $this->assertSame($info, $summary['info']);
-        $this->assertSame($summary['total'], $summary['critical'] + $summary['warn'] + $summary['info']);
+        $this->assertSame(0, $summary['hidden']);
+        $this->assertSame(
+            $summary['total'],
+            $summary['critical'] + $summary['high'] + $summary['medium'] + $summary['low'] + $summary['info']
+        );
     }
 
     public function test_json_includes_env_example_secret_finding(): void
@@ -163,12 +176,12 @@ class JsonOutputTest extends TestCase
         );
 
         $result = $this->runSecCheck($this->tempDir);
-        $issues = $result['json']['issues'] ?? [];
+        $findings = $result['json']['findings'] ?? [];
 
-        $envIssues = array_values(array_filter($issues, fn($i) => $i['check'] === 'EnvCredentialsCheck'));
+        $envIssues = array_values(array_filter($findings, fn($i) => $i['check'] === 'EnvCredentialsCheck'));
 
         $this->assertNotEmpty($envIssues, 'JSON output should include the .env.example leak.');
-        $this->assertSame('CRITICAL', $envIssues[0]['severity']);
+        $this->assertSame('critical', $envIssues[0]['severity']);
         $this->assertStringContainsString('.env.example', $envIssues[0]['message']);
         $this->assertStringContainsString('APP_KEY', $envIssues[0]['message']);
     }
@@ -177,13 +190,13 @@ class JsonOutputTest extends TestCase
     {
         $this->makeLaravelProject("APP_ENV=production\nAPP_DEBUG=true\n");
 
-        $result = $this->runSecCheck($this->tempDir);
-        $issues = $result['json']['issues'] ?? [];
+        $result = $this->runSecCheck($this->tempDir, ['--min-severity=info', '--profile=laravel']);
+        $findings = $result['json']['findings'] ?? [];
 
-        $debugIssues = array_values(array_filter($issues, fn($i) => $i['check'] === 'AppDebugCheck'));
+        $debugIssues = array_values(array_filter($findings, fn($i) => $i['check'] === 'AppDebugCheck'));
 
         $this->assertNotEmpty($debugIssues);
-        $this->assertSame('CRITICAL', $debugIssues[0]['severity']);
+        $this->assertSame('critical', $debugIssues[0]['severity']);
         $this->assertGreaterThanOrEqual(1, $result['json']['summary']['critical']);
     }
 
@@ -191,12 +204,12 @@ class JsonOutputTest extends TestCase
     {
         $this->makeLaravelProject("DB_USERNAME=appuser\nDB_PASSWORD=\n");
 
-        $result = $this->runSecCheck($this->tempDir);
-        $issues = $result['json']['issues'] ?? [];
+        $result = $this->runSecCheck($this->tempDir, ['--min-severity=info', '--profile=laravel']);
+        $findings = $result['json']['findings'] ?? [];
 
         $credIssues = array_values(array_filter(
-            $issues,
-            fn($i) => $i['check'] === 'DefaultCredentialsCheck' && $i['severity'] === 'CRITICAL'
+            $findings,
+            fn($i) => $i['check'] === 'DefaultCredentialsCheck' && $i['severity'] === 'critical'
         ));
 
         $this->assertNotEmpty($credIssues);
@@ -206,11 +219,30 @@ class JsonOutputTest extends TestCase
     public function test_json_mode_exits_one_when_issues_found(): void
     {
         $this->makeLaravelProject("APP_KEY=base64:SomeSuperSecretKey=\n");
+        mkdir($this->tempDir . '/public');
+        file_put_contents($this->tempDir . '/public/.env', "APP_KEY=base64:SomeSuperSecretKey=\n");
 
         $result = $this->runSecCheck($this->tempDir);
 
-        $this->assertSame(1, $result['exit'], 'JSON mode should still exit 1 when issues are found.');
+        $this->assertSame(1, $result['exit'], 'JSON mode should still exit 1 when a finding meets the threshold.');
         $this->assertGreaterThan(0, $result['json']['summary']['total']);
+    }
+
+    public function test_default_threshold_hides_medium_findings_and_does_not_write_config(): void
+    {
+        file_put_contents($this->tempDir . '/.env', "DB_PASSWORD=password\n");
+
+        $result = $this->runSecCheck($this->tempDir, []);
+        $shown = $result['json']['findings'] ?? [];
+
+        $this->assertNotNull($result['json']);
+        $this->assertGreaterThan(0, $result['json']['summary']['hidden']);
+        $this->assertFileDoesNotExist($this->tempDir . '/php-sec-check-config.php');
+        foreach ($shown as $finding) {
+            $this->assertContains($finding['severity'], ['critical', 'high']);
+            $this->assertStringNotContainsString('DB_PASSWORD', $finding['message']);
+        }
+        $this->assertSame($shown === [] ? 0 : 1, $result['exit']);
     }
 
     public function test_json_mode_exit_code_is_always_zero_or_one(): void

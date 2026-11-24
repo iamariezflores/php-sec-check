@@ -187,7 +187,13 @@ class ProgrammaticUsageTest extends TestCase
         }
         ob_end_clean();
 
-        $validSeverities = [Issue::CRITICAL, Issue::WARN, Issue::INFO];
+        $validSeverities = [
+            Issue::CRITICAL,
+            Issue::HIGH,
+            Issue::MEDIUM,
+            Issue::LOW,
+            Issue::INFO,
+        ];
 
         foreach ($allIssues as $issue) {
             $this->assertContains(
@@ -210,6 +216,9 @@ class ProgrammaticUsageTest extends TestCase
         $this->assertArrayHasKey('severity', $arr);
         $this->assertArrayHasKey('message', $arr);
         $this->assertArrayHasKey('check', $arr);
+        $this->assertArrayHasKey('ruleId', $arr);
+        $this->assertArrayHasKey('confidence', $arr);
+        $this->assertArrayHasKey('recommendation', $arr);
     }
 
     public function test_issue_to_string_returns_message(): void

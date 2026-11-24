@@ -3,7 +3,6 @@
 namespace Aquilinoflores\PhpSecCheck\Checks;
 
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 use Aquilinoflores\PhpSecCheck\Scan\PhpFunctionCallScanner;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -18,6 +17,9 @@ use SplFileInfo;
  */
 class UnsafeFunctionUsageCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-SRC-001';
+
+    public const RECOMMENDATION = 'Remove the call, or pass only values the application constructed. escapeshellarg() is not a substitute for avoiding a shell when the whole command comes from a request.';
     /**
      * Always-risky: command execution and dynamic code. Reported on any use;
      * CRITICAL when the argument list includes untrusted input.
@@ -60,11 +62,7 @@ class UnsafeFunctionUsageCheck implements CheckInterface
     {
         $issues = [];
 
-        echo "[UNSAFE FUNCTION USAGE]\n";
-
         if ($projectRoot === '' || !is_dir($projectRoot)) {
-            Output::info('No project root to scan for unsafe function usage.');
-            echo "\n";
             return $issues;
         }
 
@@ -89,21 +87,19 @@ class UnsafeFunctionUsageCheck implements CheckInterface
                     ? ' receives untrusted input'
                     : ' is used';
 
-                $issue = new Issue(
+                $issues[] = new Issue(
                     $severity,
                     "{$via}{$taint} in {$relative}:{$call['line']}.",
-                    'UnsafeFunctionUsageCheck'
+                    'UnsafeFunctionUsageCheck',
+                    self::RULE_ID,
+                    $call['untrusted'] ? Issue::LIKELY : Issue::HEURISTIC,
+                    self::RECOMMENDATION,
+                    $relative,
+                    $call['line'],
                 );
-                $issues[] = $issue;
-                Output::issue($issue);
             }
         }
 
-        if (empty($issues)) {
-            Output::ok('No unsafe function usage detected in application source.');
-        }
-
-        echo "\n";
         return $issues;
     }
 

@@ -48,15 +48,13 @@ class PhpVersionCheckTest extends TestCase
         return $result;
     }
 
-    public function test_output_contains_php_version_header_and_runtime(): void
+    public function test_check_does_not_print(): void
     {
         ob_start();
         (new PhpVersionCheck('8.3.36', $this->today))->run($this->tempDir);
         $output = ob_get_clean();
 
-        $this->assertStringContainsString('[PHP VERSION]', $output);
-        $this->assertStringContainsString('Scanner runtime: 8.3.36', $output);
-        $this->assertStringNotContainsString('recommend >=8.0', $output);
+        $this->assertSame('', $output);
     }
 
     public function test_supported_runtime_without_pins_is_clean(): void
@@ -160,11 +158,17 @@ class PhpVersionCheckTest extends TestCase
             'require' => ['php' => '^8.3 || ^8.2'],
         ]));
 
-        ob_start();
-        (new PhpVersionCheck('8.3.36', $this->today))->run($this->tempDir);
-        $output = ob_get_clean();
+        $result = $this->runCheck('8.3.36');
+        $messages = array_map(fn(Issue $i) => $i->message, $result);
 
-        $this->assertStringContainsString('floor 8.2.0', $output);
+        $this->assertTrue((bool) array_filter(
+            $messages,
+            fn($m) => str_contains($m, 'composer.json require.php') && str_contains($m, 'PHP 8.2')
+        ));
+        $this->assertFalse((bool) array_filter(
+            $messages,
+            fn($m) => str_contains($m, 'composer.json require.php') && str_contains($m, 'PHP 8.3')
+        ));
     }
 
     public function test_does_not_use_hardcoded_php_80_threshold(): void

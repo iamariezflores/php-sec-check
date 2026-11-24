@@ -42,13 +42,13 @@ class DangerousFunctionsCheckTest extends TestCase
         }
     }
 
-    public function test_output_contains_dangerous_functions_header(): void
+    public function test_check_does_not_print(): void
     {
         ob_start();
         (new DangerousFunctionsCheck(''))->run('');
         $output = ob_get_clean();
 
-        $this->assertStringContainsString('[DANGEROUS FUNCTIONS]', $output);
+        $this->assertSame('', $output);
     }
 
     public function test_reports_only_disable_candidates_when_none_disabled(): void

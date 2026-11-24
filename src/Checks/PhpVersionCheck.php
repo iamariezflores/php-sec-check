@@ -3,12 +3,15 @@
 namespace Aquilinoflores\PhpSecCheck\Checks;
 
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 use Aquilinoflores\PhpSecCheck\Php\PhpSupportCalendar;
 use DateTimeImmutable;
 
 class PhpVersionCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-RUN-001';
+
+    public const RECOMMENDATION = 'Plan an upgrade to a PHP branch that still receives security fixes, and make the deployed version match the pin you scan.';
+
     public function __construct(
         private readonly ?string $runtimeVersion = null,
         private readonly ?DateTimeImmutable $today = null,
@@ -22,30 +25,11 @@ class PhpVersionCheck implements CheckInterface
         $today    = $this->today ?? new DateTimeImmutable('today');
         $runtime  = $this->normalize($this->runtimeVersion ?? PHP_VERSION);
 
-        echo "[PHP VERSION]\n";
-        echo "Scanner runtime: {$runtime}\n";
-
         $composer = $this->readComposer($projectRoot);
         $floor    = $composer['floor'];
         $platform = $composer['platform'];
-        $constraint = $composer['constraint'];
-
-        if ($constraint !== null) {
-            echo "composer.json require.php: {$constraint} (floor {$floor})\n";
-        } else {
-            echo "composer.json require.php: not set\n";
-        }
-
-        echo 'composer.json platform.php: ' . ($platform ?? 'not set') . "\n";
 
         $pins = $this->detectDeployPins($projectRoot);
-        if ($pins === []) {
-            echo "Deploy pin: not detected\n";
-        } else {
-            foreach ($pins as $pin) {
-                echo "Deploy pin ({$pin['source']}): {$pin['version']}\n";
-            }
-        }
 
         $this->reportSupport($issues, $runtime, 'scanner runtime', $calendar, $today);
 
@@ -63,11 +47,6 @@ class PhpVersionCheck implements CheckInterface
             $this->reportMismatch($issues, $runtime, $pin['version'], $pin['source']);
         }
 
-        if (empty($issues)) {
-            Output::ok('PHP versions look supported and consistent.');
-        }
-
-        echo "\n";
         return $issues;
     }
 
@@ -198,7 +177,8 @@ class PhpVersionCheck implements CheckInterface
             $this->add(
                 $issues,
                 Issue::CRITICAL,
-                "PHP {$branch} from {$source} is past security support{$ended}."
+                "PHP {$branch} from {$source} is past security support{$ended}.",
+                Issue::CONFIRMED,
             );
             return;
         }
@@ -208,7 +188,8 @@ class PhpVersionCheck implements CheckInterface
             $this->add(
                 $issues,
                 Issue::WARN,
-                "PHP {$branch} from {$source} is nearing the end of security support.{$until}"
+                "PHP {$branch} from {$source} is nearing the end of security support.{$until}",
+                Issue::CONFIRMED,
             );
         }
     }
@@ -226,17 +207,23 @@ class PhpVersionCheck implements CheckInterface
         $this->add(
             $issues,
             Issue::WARN,
-            "Scanner is running PHP {$runtime} but {$source} pins {$other}. Production may differ from this scan."
+            "Scanner is running PHP {$runtime} but {$source} pins {$other}. Production may differ from this scan.",
+            Issue::HEURISTIC,
         );
     }
 
     /**
      * @param list<Issue> $issues
      */
-    private function add(array &$issues, string $severity, string $message): void
+    private function add(array &$issues, string $severity, string $message, string $confidence): void
     {
-        $issue = new Issue($severity, $message, 'PhpVersionCheck');
-        $issues[] = $issue;
-        Output::issue($issue);
+        $issues[] = new Issue(
+            $severity,
+            $message,
+            'PhpVersionCheck',
+            self::RULE_ID,
+            $confidence,
+            self::RECOMMENDATION,
+        );
     }
 }

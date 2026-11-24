@@ -1,9 +1,9 @@
 #!/usr/bin/env php
 <?php
-// Resolve autoloader whether running standalone or installed as a Composer dependency
+
 $autoloadCandidates = [
-    __DIR__ . '/../vendor/autoload.php',   // standalone / local dev
-    __DIR__ . '/../../../autoload.php',    // installed inside a project's vendor/
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
 ];
 
 $autoloaderFound = false;
@@ -16,131 +16,25 @@ foreach ($autoloadCandidates as $candidate) {
 }
 
 if (!$autoloaderFound) {
-    fwrite(STDERR, "Could not find autoloader. Run 'composer install' first.\n");
-    exit(1);
+    $src = dirname(__DIR__) . '/src';
+    if (!is_file($src . '/Cli/Application.php')) {
+        fwrite(STDERR, "Could not find autoloader. Run 'composer install' first.\n");
+        exit(1);
+    }
+
+    spl_autoload_register(static function (string $class) use ($src): void {
+        $prefix = 'Aquilinoflores\\PhpSecCheck\\';
+        if (!str_starts_with($class, $prefix)) {
+            return;
+        }
+
+        $file = $src . '/' . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
+        if (is_file($file)) {
+            require $file;
+        }
+    });
 }
 
-use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
-use Aquilinoflores\PhpSecCheck\Checks\{
-    PhpVersionCheck,
-    DisplayErrorsCheck,
-    ComposerAuditCheck,
-    DangerousFunctionsCheck,
-    UnsafeFunctionUsageCheck,
-    DirectoryExposureCheck,
-    SessionSecurityCheck,
-    CookieFlagsCheck,
-    FileUploadCheck,
-    XssOutputCheck,
-    SqlInjectionCheck,
-    UnserializeCheck
-};
-use Aquilinoflores\PhpSecCheck\Checks\Laravel\{
-    AppDebugCheck,
-    DefaultCredentialsCheck,
-    EnvCredentialsCheck,
-    VendorCheck
-};
+use Aquilinoflores\PhpSecCheck\Cli\Application;
 
-$projectRoot = getcwd();
-$format      = in_array('--format=json', $argv ?? []) ? 'json' : 'text';
-
-// In JSON mode suppress all echoed output — we'll collect and print at the end.
-if ($format === 'json') {
-    ob_start();
-}
-
-// Check for config file
-$configFile = $projectRoot . '/php-sec-check-config.php';
-if (!file_exists($configFile)) {
-    echo "No config file found. Creating template php-sec-check-config.php in project root...\n";
-
-    $template = <<<PHP
-<?php
-return [
-    // Names checked for weak values in .env, live values in templates, and
-    // hardcoded assignments in configuration files.
-    // A filled APP_KEY inside .env is expected and is not a finding.
-    // Recognizable provider tokens are detected even when the name is not listed.
-    'sensitive_keys' => [
-        'APP_KEY',
-        'DB_PASSWORD',
-        'MAIL_PASSWORD',
-        'AWS_SECRET_ACCESS_KEY',
-        'STRIPE_SECRET_KEY',
-    ],
-];
-PHP;
-
-    file_put_contents($configFile, $template);
-    echo "Template config created! You can edit it to add custom keys.\n\n";
-}
-
-echo "=== PHP Security Check Tool ===\n\n";
-
-$allIssues = [];
-
-// Generic PHP checks
-$checks = [
-    new PhpVersionCheck(),
-    new DisplayErrorsCheck(),
-    new ComposerAuditCheck(),
-    new DangerousFunctionsCheck(),
-    new UnsafeFunctionUsageCheck(),
-    new DirectoryExposureCheck(),
-    new EnvCredentialsCheck(),
-    new SessionSecurityCheck(),
-    new CookieFlagsCheck(),
-    new FileUploadCheck(),
-    new XssOutputCheck(),
-    new SqlInjectionCheck(),
-    new UnserializeCheck(),
-];
-
-foreach ($checks as $check) {
-    $allIssues = array_merge($allIssues, $check->run($projectRoot));
-}
-
-// Detect Laravel
-$isLaravel = file_exists($projectRoot . '/artisan') && file_exists($projectRoot . '/bootstrap/app.php');
-
-if ($isLaravel) {
-    echo "Laravel project detected!\n";
-
-    $appDebugCheck           = new AppDebugCheck();
-    $defaultCredentialsCheck = new DefaultCredentialsCheck();
-    $vendorCheck             = new VendorCheck();
-
-    $laravelIssues = array_merge(
-        $appDebugCheck->run($projectRoot),
-        $defaultCredentialsCheck->run($projectRoot),
-        $vendorCheck->run($projectRoot)
-    );
-
-    $allIssues = array_merge($allIssues, $laravelIssues);
-} else {
-    echo "Generic PHP project detected\n";
-}
-
-echo "\nScan complete.\n";
-
-if ($format === 'json') {
-    ob_end_clean();
-
-    $critical = array_filter($allIssues, fn(Issue $i) => $i->severity === Issue::CRITICAL);
-    $warns    = array_filter($allIssues, fn(Issue $i) => $i->severity === Issue::WARN);
-    $infos    = array_filter($allIssues, fn(Issue $i) => $i->severity === Issue::INFO);
-
-    echo json_encode([
-        'summary' => [
-            'total'    => count($allIssues),
-            'critical' => count($critical),
-            'warn'     => count($warns),
-            'info'     => count($infos),
-        ],
-        'issues' => array_map(fn(Issue $i) => $i->toArray(), $allIssues),
-    ], JSON_PRETTY_PRINT) . "\n";
-}
-
-exit(empty($allIssues) ? 0 : 1);
+exit((new Application())->run($argv));

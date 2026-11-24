@@ -1,638 +1,185 @@
 # php-sec-check
 
-> A lightweight CLI tool to scan PHP and Laravel projects for common security risks.
+Security auditor for traditional PHP: plain scripts, custom MVC, and PHP with MySQL. The target does not need Composer, Laravel, or Symfony.
+
+The scanner itself requires PHP 8.2 or newer and has no runtime dependencies. It reads the project. It does not execute it, and `scan` does not write into it.
+
+Packagist is the primary install. A PHAR is the second channel, for a machine where you do not want a global Composer package.
 
 [![Packagist Version](https://img.shields.io/packagist/v/iamariezflores/php-sec-check)](https://packagist.org/packages/iamariezflores/php-sec-check)
-[![Packagist Downloads](https://img.shields.io/packagist/dt/iamariezflores/php-sec-check)](https://packagist.org/packages/iamariezflores/php-sec-check)
 [![PHP Version](https://img.shields.io/badge/php-%3E%3D8.2-blue)](https://packagist.org/packages/iamariezflores/php-sec-check)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![PHPUnit](https://img.shields.io/badge/tested%20with-PHPUnit-blue)](https://phpunit.de)
 
----
-
-## Overview
-
-`php-sec-check` is a Composer dev tool that audits your PHP or Laravel project for security misconfigurations and vulnerabilities in seconds. Run it from the command line — no setup required.
-
-The package has **no runtime dependencies**. PHPUnit is included as a dev dependency for running the test suite during development and contributions.
+## Install
 
 ```bash
-vendor/bin/sec-check
+composer global require iamariezflores/php-sec-check
+php-sec-check scan /path/to/project
 ```
 
----
+`sec-check` is the same command.
 
-## Features
+Build the PHAR from a checkout:
 
-### Generic PHP Checks
-These run on **any** PHP project:
+```bash
+composer install
+composer phar
+php php-sec-check.phar rules
+```
 
-| Check | Description |
+A host whose only PHP is 7.x cannot run the scanner in place. Copy the tree to a PHP 8.2+ machine, or run the PHAR there, and point it at the old source.
+
+## Commands
+
+```text
+php-sec-check scan [path] [--profile=legacy] [--format=text|json] [--min-severity=high] [--exclude=dir]
+php-sec-check rules
+php-sec-check init [path]
+```
+
+`scan` with no path reads the current directory. `--exclude` may be repeated. `init` writes `php-sec-check-config.php` and refuses to overwrite it. `rules` prints the rule ids.
+
+### Profiles
+
+| Profile | What it adds |
 |---|---|
-| PHP Version | Compares scanner runtime, `composer.json`, and deploy pins against PHP security-support dates — not a hardcoded 8.0 cutoff |
-| Display Errors | Detects if `display_errors` is enabled (exposes stack traces in production) |
-| Composer Audit | Runs `composer audit` to surface known CVEs in your dependencies |
-| Dangerous Functions | Configuration: whether shell-execution functions are listed in `disable_functions` |
-| Unsafe Function Usage | Source: whether risky functions are used in application PHP, and whether they receive untrusted input |
-| Directory Exposure | Sensitive files and directories sitting in the document root (`public/`, or a project-root `index.php`) |
-| Secret Exposure | `.env` committed or left on a public web path, live secrets in `.env.example`, hardcoded keys in configuration files, committed private keys, and recognizable AWS / Stripe / GitHub / Slack / Google / SendGrid tokens. A normal `APP_KEY` in `.env` is not a finding |
-| Session Security | php.ini session hardening (`use_strict_mode`, `use_only_cookies`, `use_trans_sid`, SID entropy). Laravel `config/session.php` only when Laravel is detected |
-| Cookie Flags | `setcookie()` / `setrawcookie()` options, `session.cookie_secure` / `httponly` / `samesite`, and Laravel session cookie flags |
-| File Upload | `move_uploaded_file()` destinations that keep the client filename, skip an extension/MIME allow-list, or write under `public/` |
-| XSS Output | `echo` / `print` / `<?=` of `$_GET` / `$_POST` / `$_REQUEST` / `$_COOKIE` without HTML escaping, and Blade `{!! !!}` |
-| SQL Injection | Concatenated or interpolated SQL with untrusted input (`mysqli_query` / `PDO::query` / `DB::select` / `whereRaw`) |
-| Unserialize | `unserialize()` / `maybe_unserialize()` object injection — any use is `WARN`, untrusted input is `CRITICAL` |
+| `legacy` | Default. Project PHP settings, document root, secrets in the working tree, and same-expression source rules. |
+| `production` | Missing `.htaccess` denials are high. |
+| `host` | Production, plus world-writable files in the document root. Use this on the server. It does nothing about permissions on Windows. |
+| `dependencies` | Legacy, plus `composer audit` when `composer.lock` is present. |
+| `laravel` | Legacy, plus `APP_DEBUG`, default database credentials, `vendor/` gitignore, and Laravel session config. |
 
-#### PHP version
+`composer audit` and the Laravel checks are not part of the default scan.
 
-The scanner does **not** hardcode “below 8.0”. Local PHP is often newer than production, so it collects several signals and checks them against PHP’s security-support calendar ([supported versions](https://www.php.net/supported-versions.php)):
+### Exit codes
 
-| Signal | Source |
+| Code | Meaning |
 |---|---|
-| Scanner runtime | `PHP_VERSION` of the process running `sec-check` |
-| Composer requirement | Lowest version allowed by `composer.json` `require.php` |
-| Composer platform | `config.platform.php` when set |
-| Deploy pin | `.php-version`, `.tool-versions` (`php …`), or `FROM php:X.Y` in a Dockerfile |
+| 0 | Nothing at or above the threshold. |
+| 1 | A finding meets the threshold. |
+| 2 | Invalid arguments, or `init` would overwrite a config file. |
+| 3 | The path cannot be read. |
 
-| Finding | Severity |
-|---|---|
-| A collected version is **past** security support | `CRITICAL` |
-| Security support ends within 90 days | `WARN` |
-| Scanner minor version **differs** from a deploy pin / `platform.php` | `WARN` |
+The default threshold is `high`. `medium`, `low`, and `info` are counted and hidden. `warn` is an alias of `medium`.
 
-Unknown newer minors (not yet in the calendar) are treated as supported; unknown older minors are treated as end-of-life.
+## What a scan looks at
 
-#### Dangerous PHP functions
+Document roots are `public/` when that directory exists, and `public_html`, `www`, `web`, `html`, `htdocs`, `httpdocs`, or `webroot` when the directory contains `index.php` or `.htaccess`. The project root is a document root when `index.php` is there and none of those directories has its own `index.php`.
 
-These are **two checks**, on purpose. Not every PHP function is equally dangerous, and some cannot be disabled via `disable_functions` at all.
+PHP settings come from the project's `.user.ini`, `php.ini`, `.htaccess` `php_flag` / `php_value`, and literal `ini_set()` / `ini_alter()` calls. The scanner process `php.ini` is not the application's configuration. A directive the project never sets is not a finding.
 
-**1. Configuration (`DangerousFunctionsCheck`)**
+Source rules stay inside one expression or one statement. There is no cross-function taint analysis.
 
-Production hardening. Only functions that can actually be listed in `disable_functions` are considered:
-
-`exec`, `shell_exec`, `system`, `passthru`, `proc_open`, `popen`
-
-Not in this list:
-
-- `eval()` — language construct; `disable_functions` cannot turn it off
-- `curl_exec()` / `curl_multi_exec()` — legitimate HTTP helpers; presence in php.ini is not a finding
-
-Matching is **whole-name only**. Listing `curl_exec` in `disable_functions` does **not** count as disabling `exec`.
-
-**2. Source usage (`UnsafeFunctionUsageCheck`)**
-
-Scans application `.php` files with `token_get_all()` (a first pass; full taint / AST analysis is later). Skips `vendor/`, `node_modules/`, `.git/`, `storage/framework/`, and `bootstrap/cache/`.
-
-Method calls such as `$pdo->exec()` and function definitions are ignored. `\exec()` (global) is still reported.
-
-| Call | When it is reported |
-|---|---|
-| `exec`, `shell_exec`, `system`, `passthru`, `proc_open`, `popen`, `eval`, `create_function`, backtick shells | `WARN` on any use |
-| Same calls with untrusted input in the argument list | `CRITICAL` |
-| `curl_exec`, `curl_multi_exec` | Only if untrusted input reaches the call — a normal `curl_exec($ch)` is clean |
-
-Untrusted input, for this pass: `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, `$_FILES`, `$_SERVER`, `$argv`, and `php://input`. Nested assignments are not followed yet.
-
-#### Directory exposure
-
-`VendorCheck` only asks whether `vendor/` is listed in `.gitignore`. A web server does not read `.gitignore`. `DirectoryExposureCheck` asks whether sensitive paths sit in the **document root** and can be downloaded.
-
-| Project layout | What is scanned |
-|---|---|
-| `public/` directory exists | `public/` |
-| `index.php` at the project root and **no** `public/index.php` | project root |
-| neither | nothing (informational only) |
-
-Git is extra context, not the decision. Tracking uses `git ls-files`; ignore rules use `git check-ignore --no-index`. A path that is gitignored but still on disk in `public/` is still a finding. A path that is also tracked is promoted to `CRITICAL`.
-
-A Laravel `public/storage` **symlink** (`php artisan storage:link`) is skipped. A real `storage/` directory copied into the document root is not.
-
-| Finding | Severity |
-|---|---|
-| `.git` or `vendor/` in the document root | `CRITICAL` |
-| `backup/`, `dumps/`, `storage/` (real directory, not a symlink) | `CRITICAL` |
-| `phpinfo.php` or `*.sql` in the document root | `CRITICAL` |
-| `composer.json` / `composer.lock`, `*.log`, `.htaccess` backups | `WARN` |
-| Path is also tracked by git | promoted to `CRITICAL` |
-| `public/.env` | not this check — `EnvCredentialsCheck` |
-| Project-root `vendor/` next to Laravel `public/` | not this check — `VendorCheck` |
-
-#### Secret exposure
-
-`EnvCredentialsCheck` runs on every project. A filled `APP_KEY`, database password, or API token **inside `.env` is expected** — Laravel cannot boot without `APP_KEY`. The finding is exposure: the file was committed, a copy is on a public path, or the value was copied somewhere that ships with the application.
-
-| Finding | Severity |
-|---|---|
-| `.env` (or `.env.local`, `.env.production`, `.env.bak`, …) is **tracked by git**, at the root or in a subdirectory | `CRITICAL` |
-| That file is listed in ignore rules but **still in the index** | `CRITICAL` — `git rm --cached <path>` |
-| The file exists and is **not ignored** | `WARN` |
-| `.env` under a common document root: `public/`, `public_html/`, `www/`, `web/`, `html/`, `htdocs/`, `httpdocs/`, `webroot/`, `storage/app/public/` | `CRITICAL` |
-| `.env` next to a root `index.php` when `public/index.php` does not exist | `CRITICAL` |
-| `.env.example`, `.env.sample`, `.env.template`, or `.env.dist` contains a real secret | `CRITICAL` |
-| A sensitive key or recognizable token hardcoded in a configuration file (`config/*`, `wp-config.php`, `config.php`, …) | `CRITICAL` |
-| `id_rsa`, `id_ed25519`, `*.p12`, `*private*.key`, or a `BEGIN … PRIVATE KEY` block is **tracked** | `CRITICAL` |
-| That private key exists and is **not ignored** | `WARN` |
-| AWS, Stripe, GitHub, Slack, Google, or SendGrid token in a **tracked** source file | `CRITICAL` |
-| Same token in source that is **not ignored** | `WARN` |
-| Weak values such as `DB_PASSWORD=password` | `WARN` |
-| Empty `APP_KEY` | `WARN` |
-
-Git exclusion uses `git ls-files` and `git check-ignore --no-index`, not a text search of `.gitignore`. A secret that stays in an ignored `.env` is not reported. `env('APP_KEY')` in `config/app.php` is not reported. A commented-out token is not reported.
-
-#### Session security
-
-This is php.ini session **mechanics**, not cookie flags. `Secure`, `HttpOnly`, and `SameSite` belong to a separate check.
-
-Settings are read from runtime `ini_get()` (or an injected map when you construct `SessionSecurityCheck` yourself). SID strength is `sid_length × sid_bits_per_character`. PHP's own minimum length is 22; **128 bits** of entropy is the floor we treat as locked down. Both `32 × 4` (engine default length) and `26 × 5` (common `php.ini-production`) pass.
-
-| Setting | Hardened value | Finding |
+| Rule | Severity | What it reports |
 |---|---|---|
-| `session.use_trans_sid` | `0` | `CRITICAL` if enabled — session IDs leak in URLs and `Referer` |
-| `session.use_only_cookies` | `1` | `CRITICAL` if disabled — session IDs can be passed in URLs |
-| `session.save_path` | not under the document root | `CRITICAL` if it resolves inside `public/` (including `N;mode;/path` prefixes) |
-| `session.sid_length` | ≥ 22 | `CRITICAL` below PHP's minimum |
-| `session.use_strict_mode` | `1` | `WARN` if disabled — uninitialized IDs (session fixation) |
-| SID entropy | ≥ 128 bits | `WARN` if lower |
+| PSC-RUN-001 | critical | PHP branch past security support, nearing it, or a pin that does not match the scanner |
+| PSC-RUN-010 | medium | `display_errors` enabled in the project |
+| PSC-RUN-011 | critical | `allow_url_include` enabled |
+| PSC-RUN-012 | low | `expose_php` enabled |
+| PSC-RUN-020 | medium | The project sets `disable_functions` and leaves out a shell function |
+| PSC-RUN-030 | critical | Session settings written by the project |
+| PSC-RUN-040 | critical | Cookie flags on `setcookie()` or in project session config |
+| PSC-WEB-001 | high | `Options Indexes` |
+| PSC-WEB-002 | medium | An `.htaccess` file does not mention `.env`, `.git`, or `.sql` |
+| PSC-WEB-003 | info | An `.htaccess` file sets none of the usual security headers |
+| PSC-SRC-001 | critical | Command execution or `eval`, critical when a superglobal is in the same call |
+| PSC-SRC-010 | critical | `move_uploaded_file()` keeps the client name or writes into a public directory |
+| PSC-SRC-020 | critical | HTML output of a superglobal without `htmlspecialchars` in the same expression |
+| PSC-SRC-030 | critical | SQL built by concatenating a superglobal |
+| PSC-SRC-040 | critical | `unserialize()` of a superglobal, or any `unserialize()` as a heuristic |
+| PSC-SRC-050 | high | `md5()` or `sha1()` of a password-like value |
+| PSC-SRC-060 | medium | `rand()`, `mt_rand()`, or `uniqid()` in the same statement as a token |
+| PSC-SRC-070 | high | `CURLOPT_SSL_VERIFYPEER` or `verify_peer` set false |
+| PSC-SRC-080 | critical | `include` or `require` of `$_GET`, `$_POST`, `$_REQUEST`, or `$_COOKIE` |
+| PSC-FILE-001 | critical | Sensitive file or directory inside a document root |
+| PSC-SEC-001 | critical | Secret in the working tree, a template, a config assignment, or a document root |
+| PSC-FILE-020 | high | World-writable file in a document root. Host profile, Unix only |
+| PSC-DEP-001 | medium | `composer audit` could not be completed. Dependencies profile |
+| PSC-DEP-002 | critical | `composer audit` advisory. Dependencies profile |
+| PSC-LAR-001 | critical | `APP_DEBUG` enabled. Laravel profile |
+| PSC-LAR-002 | critical | Default or empty database credentials. Laravel profile |
+| PSC-FILE-010 | medium | `vendor/` is not ignored by git. Laravel profile |
 
-Laravel extras run **only** when `artisan` and `bootstrap/app.php` exist. `.env` overrides `config/session.php` defaults. A normal `file` driver writing to `storage_path('framework/sessions')` is clean.
+Confidence is `confirmed` when a file or directive was read, `likely` when a request value is in the same expression as the sink, and `heuristic` when the pattern is risky and taint was not shown.
 
-| Laravel finding | Severity |
-|---|---|
-| `cookie` driver with `encrypt` false | `WARN` |
-| `file` driver path under `public/` (`public_path(...)` or a `public/` string) | `CRITICAL` |
+`allow_url_fopen` is PHP's default and is not reported. `md5()` of a file checksum is not a password finding. `rand()` by itself is not a token finding.
 
-#### Cookie flags
+## What this is not
 
-Missing `Secure`, `HttpOnly`, or `SameSite` makes cookies easy to steal (XSS) or send cross-site (CSRF). **Session security** still owns trans-sid, strict mode, and SID entropy. This check owns the flags on the cookie itself.
+This is not a taint engine. Psalm, Semgrep, SonarQube, and Progpilot already do inter-procedural analysis, and they need a project they can parse and type. php-sec-check does not compete with them.
 
-Three signals, same first-pass style as the other source scans (`token_get_all()`, skip `vendor/` / `node_modules/` / `.git/`):
+`composer audit` runs only on the `dependencies` profile. Git history is out of scope: secrets are read from the working tree and the index. The scan never rewrites the target.
 
-| Signal | What is inspected |
-|---|---|
-| Application source | `setcookie()` and `setrawcookie()` |
-| php.ini / runtime | `session.cookie_httponly`, `session.cookie_secure`, `session.cookie_samesite` |
-| Laravel | `config/session.php` + `.env`, only when `artisan` and `bootstrap/app.php` exist |
+## Config
 
-| Finding | Severity |
-|---|---|
-| `setcookie('sid', $id)` / `setrawcookie()` with no options array | `WARN` — missing Secure, HttpOnly, and SameSite |
-| Options array with `secure => true`, `httponly => true`, `samesite => 'Lax'` (or `Strict`) | clean |
-| Legacy 7-argument `setcookie` with Secure and HttpOnly but no SameSite | `WARN` |
-| `session.cookie_httponly=0` | `CRITICAL` — JavaScript can read the session cookie |
-| `session.cookie_secure=0` | `WARN` — cookie can be sent over HTTP |
-| `session.cookie_samesite` unset | `WARN` |
-| `SameSite=None` without `Secure` | `CRITICAL` — browsers reject it |
-| Laravel `http_only => false` | `WARN` |
-| Laravel `same_site => null` (or empty) | `WARN` |
-| Laravel `secure` explicitly `false` | `WARN` |
-| Laravel `SESSION_SECURE_COOKIE` unset / null | not a finding — Laravel may enable Secure on HTTPS |
+`php-sec-check init` writes `php-sec-check-config.php`:
 
-A third argument that is a **variable** (`setcookie('sid', $id, $opts)`) is skipped on this pass; assignments are not followed. `SameSite=None` is accepted only when Secure is also true.
-
-#### File upload
-
-Saving an upload under `public/` with the original client filename lets an attacker plant executable PHP (or HTML) and request it later. This is a first-pass `token_get_all()` scan of `move_uploaded_file()` destinations — not a full upload pipeline. Nested assignments are not followed. `vendor/`, `node_modules/`, `.git/`, `storage/framework/`, and `bootstrap/cache/` are skipped.
-
-| Finding | Severity |
-|---|---|
-| Destination is under `public/` or `public_path()` **and** uses `$_FILES[...]['name']` | `CRITICAL` |
-| Destination is under `public/` / `public_path()` | `CRITICAL` |
-| Destination uses the client filename (`$_FILES[...]['name']`) | `CRITICAL` |
-| No extension or MIME allow-list in the same file | `WARN` |
-| `storage_path()` (or non-public path) + generated name (`random_bytes` / `bin2hex` / `uniqid`) + allow-list (`in_array` of extensions, `mimes:`, `finfo_*`, `mime_content_type`, `getimagesize`) | clean |
-
-`$_FILES[...]['tmp_name']` is the PHP temp path and is **not** treated as a client filename. `copy()` / `$_FILES` without `move_uploaded_file()` are out of scope on this pass.
-
-#### XSS output
-
-Unescaped user input in HTML is a classic stored/reflected XSS path. This is a first-pass `token_get_all()` + Blade scan — not a DOM XSS engine. Nested assignments are not followed. `vendor/`, `node_modules/`, `.git/`, `storage/framework/`, and `bootstrap/cache/` are skipped.
-
-Untrusted input for this check: `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`.
-
-| Finding | Severity |
-|---|---|
-| `echo $_GET['q']` / `print` / `<?=` of untrusted input | `CRITICAL` |
-| Same output wrapped in `htmlspecialchars`, `htmlentities`, or Laravel `e()` | clean |
-| Blade `{{ $q }}` (auto-escaped) | clean |
-| Blade `{!! $_GET['q'] !!}` | `CRITICAL` |
-| Blade `{!! $q !!}` (raw HTML, no superglobal on this pass) | `WARN` |
-| File sets `Content-Type: application/json` | out of scope (avoids JSON API false positives) |
-| `echo json_encode($_GET)` | out of scope for this pass |
-
-A concatenated mix (`htmlspecialchars($_GET['a']) . $_GET['b']`) is still `CRITICAL` because part of the output is unescaped.
-
-#### SQL injection
-
-Building SQL with string concatenation or interpolation of request data is a classic injection path. This is a first-pass `token_get_all()` scan — not a SQL parser. Nested assignments are not followed. `vendor/`, `node_modules/`, `.git/`, `storage/framework/`, and `bootstrap/cache/` are skipped.
-
-| Finding | Severity |
-|---|---|
-| `"SELECT * FROM users WHERE id = " . $_GET['id']` | `CRITICAL` |
-| `"SELECT * FROM users WHERE id = {$_GET['id']}"` | `CRITICAL` |
-| `mysqli_query` / `PDO::query` / `PDO::exec` / `DB::select` with concatenated or untrusted SQL | `CRITICAL` |
-| Laravel `whereRaw('id = ' . $_GET['id'])` | `CRITICAL` |
-| `$pdo->prepare('SELECT * FROM users WHERE id = ?')` + `execute([$id])` | clean |
-| `DB::select('SELECT * FROM users WHERE id = ?', [$_GET['id']])` | clean |
-| `User::where('id', $id)` / `User::where('id', $_GET['id'])` | clean |
-
-Bound parameters in a later argument are ignored. Only the SQL string argument is inspected.
-
-#### Unserialize
-
-`unserialize()` can instantiate attacker-controlled objects (PHP object injection / POP chains). This is a separate source check from command-execution (`UnsafeFunctionUsageCheck`). First-pass `token_get_all()`; nested assignments are not followed. `vendor/`, `node_modules/`, `.git/`, `storage/framework/`, and `bootstrap/cache/` are skipped.
-
-| Finding | Severity |
-|---|---|
-| `unserialize($_POST['data'])` / `maybe_unserialize($_GET['opt'])` | `CRITICAL` |
-| `unserialize($cached)` (local variable, no superglobal in the argument list) | `WARN` |
-| `unserialize($cached, ['allowed_classes' => false])` | `WARN` at most — restriction noted, not silenced |
-| Untrusted input **plus** `allowed_classes => false` | still `CRITICAL` |
-| `json_decode($json)` | clean |
-
-Untrusted input for this check: `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, `$_FILES`, `$_SERVER`, `$argv`, `php://input`.
-
-### Laravel-Specific Checks
-Auto-detected when `artisan` and `bootstrap/app.php` are present. Session **driver/path/encrypt** extras live on **Session Security**; session **cookie flags** live on **Cookie Flags**. Both run only in this case:
-
-| Check | Description |
-|---|---|
-| `APP_DEBUG` Check | Warns if `APP_DEBUG=true`, critical if combined with `APP_ENV=production` |
-| Default Credentials | Warns if `DB_USERNAME` uses a default value (`root`, `admin`, etc.) or `DB_PASSWORD` is empty |
-| Secret exposure | Same check as every other PHP project. See **Secret exposure** above. A filled `APP_KEY` in `.env` is still not a finding |
-| Vendor in Git | Warns if `vendor/` is not excluded in `.gitignore` |
-
-### Severity Levels
-
-Every finding is tagged with a severity level so you can triage at a glance:
-
-| Level | Color | Meaning |
-|---|---|---|
-| `CRITICAL` | Red background | Active security risk — fix before deploying to production |
-| `WARN` | Red text | Bad practice or potential risk — should be addressed |
-| `INFO` | Yellow text | Informational notice — not necessarily a risk |
-
----
-
-## Requirements
-
-- **PHP >= 8.2**
-- Composer
-
-## Installation
-
-Install as a dev dependency via Composer:
-
-```bash
-composer require iamariezflores/php-sec-check --dev
+```php
+return [
+    'sensitive_keys' => ['APP_KEY', 'DB_PASSWORD'],
+    'profile' => 'legacy',
+    'exclude' => ['cache', 'storage/framework'],
+    'disabled_rules' => ['PSC-WEB-003'],
+];
 ```
 
-Available on Packagist: [iamariezflores/php-sec-check](https://packagist.org/packages/iamariezflores/php-sec-check)
+A CLI `--profile`, `--min-severity`, or `--exclude` overrides the file for that run. `sensitive_keys` replaces the default list when the key is present.
 
----
+## JSON
 
-## Usage
-
-From your project root, run:
-
-```bash
-vendor/bin/sec-check
-```
-
-The tool exits with **code `0`** when no issues are found, and **code `1`** when any issue is detected. This makes it compatible with any CI/CD pipeline out of the box.
-
-### JSON Output
-
-Pass `--format=json` to get machine-readable output instead of the coloured text report. All echo output is suppressed and a single JSON document is printed:
-
-```bash
-vendor/bin/sec-check --format=json
-```
+`--format=json` prints one document:
 
 ```json
 {
-    "summary": {
-        "total": 11,
-        "critical": 8,
-        "warn": 3,
-        "info": 0
-    },
-    "issues": [
-        {
-            "severity": "CRITICAL",
-            "message": "APP_DEBUG is enabled while APP_ENV is set to \"production\". This exposes stack traces and environment data to end users.",
-            "check": "AppDebugCheck"
-        },
-        {
-            "severity": "WARN",
-            "message": "Shell-execution function 'exec' is not listed in disable_functions. Disable it in production php.ini.",
-            "check": "DangerousFunctionsCheck"
-        },
-        {
-            "severity": "CRITICAL",
-            "message": "exec() receives untrusted input in app/Job.php:12.",
-            "check": "UnsafeFunctionUsageCheck"
-        },
-        {
-            "severity": "CRITICAL",
-            "message": "public/.git is inside the document root and can be downloaded. Move repository metadata out of the web root.",
-            "check": "DirectoryExposureCheck"
-        },
-        {
-            "severity": "WARN",
-            "message": "session.use_strict_mode is disabled. Enable it so PHP rejects uninitialized session IDs (session fixation).",
-            "check": "SessionSecurityCheck"
-        },
-        {
-            "severity": "WARN",
-            "message": "setcookie() in login.php:1 is missing Secure, HttpOnly, and SameSite.",
-            "check": "CookieFlagsCheck"
-        },
-        {
-            "severity": "CRITICAL",
-            "message": "move_uploaded_file() in upload.php:1 writes the client filename into a web-accessible directory.",
-            "check": "FileUploadCheck"
-        },
-        {
-            "severity": "CRITICAL",
-            "message": "echo in view.php:2 outputs untrusted input without HTML escaping.",
-            "check": "XssOutputCheck"
-        },
-        {
-            "severity": "CRITICAL",
-            "message": "Concatenated SQL in query.php:2 uses untrusted input.",
-            "check": "SqlInjectionCheck"
-        },
-        {
-            "severity": "CRITICAL",
-            "message": "unserialize() receives untrusted input in cache.php:1.",
-            "check": "UnserializeCheck"
-        },
-        {
-            "severity": "CRITICAL",
-            "message": ".env is listed in ignore rules but is still tracked by git. Remove it from the index with `git rm --cached .env`.",
-            "check": "EnvCredentialsCheck"
-        }
-    ]
-}
-```
-
-The JSON format is designed for downstream integrations — Slack bots, custom dashboards, CI reporters, or any tool that consumes structured data. The exit code still follows the same `0` / `1` convention.
-
-### Example Output (text)
-
-```
-=== PHP Security Check Tool ===
-
-[PHP VERSION]
-Scanner runtime: 8.3.36
-composer.json require.php: >=8.2 (floor 8.2.0)
-[WARN] PHP 8.2 from composer.json require.php is nearing the end of security support. Security support ends 2026-12-31.
-
-[DISPLAY ERRORS]
-[WARN] 'display_errors' is enabled. Disable in production.
-
-[COMPOSER DEPENDENCIES]
-[OK] No known vulnerabilities found in dependencies.
-
-[DANGEROUS FUNCTIONS]
-[WARN] Shell-execution function 'exec' is not listed in disable_functions. Disable it in production php.ini.
-
-[UNSAFE FUNCTION USAGE]
-[CRITICAL] exec() receives untrusted input in app/Job.php:12.
-
-[DIRECTORY EXPOSURE]
-[CRITICAL] public/.git is inside the document root and can be downloaded. Move repository metadata out of the web root.
-
-[SESSION SECURITY]
-[WARN] session.use_strict_mode is disabled. Enable it so PHP rejects uninitialized session IDs (session fixation).
-
-[COOKIE FLAGS]
-[WARN] setcookie() in login.php:1 is missing Secure, HttpOnly, and SameSite.
-
-[FILE UPLOAD]
-[CRITICAL] move_uploaded_file() in upload.php:1 writes the client filename into a web-accessible directory.
-
-[XSS OUTPUT]
-[CRITICAL] echo in view.php:2 outputs untrusted input without HTML escaping.
-
-[SQL INJECTION]
-[CRITICAL] Concatenated SQL in query.php:2 uses untrusted input.
-
-[UNSERIALIZE]
-[CRITICAL] unserialize() receives untrusted input in cache.php:1.
-
-[ENV CREDENTIALS]
-[CRITICAL] .env is listed in ignore rules but is still tracked by git. Remove it from the index with `git rm --cached .env`.
-[CRITICAL] public/.env exists and is inside a web-accessible directory. Move secrets out of the document root.
-[CRITICAL] .env.example contains what looks like a real secret for 'APP_KEY' (value like 'base****'). Template files must not include live credentials.
-[CRITICAL] config/services.php contains a hardcoded Stripe secret key (value like 'sk_l****'). A secret in .env is expected; this copy is exposed with the application.
-[CRITICAL] id_rsa is tracked by git. Private keys must not be committed.
-
-Laravel project detected!
-[APP DEBUG]
-[CRITICAL] APP_DEBUG is enabled while APP_ENV is set to "production". This exposes stack traces and environment data to end users.
-
-[DEFAULT CREDENTIALS]
-[WARN] DB_USERNAME is set to 'root'. Using default database usernames is a security risk.
-[CRITICAL] DB_PASSWORD is empty or null. A database without a password is a critical security risk.
-
-Scan complete.
-```
-
-### CI/CD Integration
-
-Because `sec-check` exits with code `1` on any finding, you can drop it directly into your pipeline and it will **fail the build** automatically when issues are detected.
-
-**GitHub Actions:**
-
-```yaml
-name: Security Check
-
-on: [push, pull_request]
-
-jobs:
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: composer install --no-interaction
-
-      - name: Run security check
-        run: vendor/bin/sec-check
-```
-
-**GitLab CI:**
-
-```yaml
-security-check:
-  stage: test
-  script:
-    - composer install --no-interaction
-    - vendor/bin/sec-check
-```
-
-**Makefile / Shell script:**
-
-```bash
-composer install --no-interaction
-vendor/bin/sec-check || exit 1
-```
-
-**Capturing JSON output in CI:**
-
-```bash
-vendor/bin/sec-check --format=json > security-report.json
-```
-
----
-
-## Configuration
-
-On first run, `php-sec-check` automatically creates a `php-sec-check-config.php` file at your project root. Add extra key names here if you store secrets under custom env keys. Those names are used to detect **weak values** in `.env`, **live secrets copied into templates**, and **hardcoded assignments in configuration files**. They are not used to flag a filled value in `.env`. Recognizable AWS, Stripe, GitHub, Slack, Google, and SendGrid tokens are detected even when the variable name is not listed.
-
-```php
-<?php
-
-return [
-    'sensitive_keys' => [
-        'APP_KEY',
-        'DB_PASSWORD',
-        'MAIL_PASSWORD',
-        'AWS_SECRET_ACCESS_KEY',
-        'STRIPE_SECRET_KEY',
-        'CUSTOM_SECRET',
-    ],
-];
-```
-
----
-
-## Advanced Usage
-
-### Programmatic Usage
-
-All checks return an array of `Issue` objects. Each `Issue` carries a `severity`, `message`, and the `check` name that produced it. This is ideal for building custom security dashboards, audit routes, or integrating findings into your own tooling.
-
-```php
-use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Checks\PhpVersionCheck;
-use Aquilinoflores\PhpSecCheck\Checks\DangerousFunctionsCheck;
-use Aquilinoflores\PhpSecCheck\Checks\UnsafeFunctionUsageCheck;
-use Aquilinoflores\PhpSecCheck\Checks\DirectoryExposureCheck;
-use Aquilinoflores\PhpSecCheck\Checks\SessionSecurityCheck;
-use Aquilinoflores\PhpSecCheck\Checks\CookieFlagsCheck;
-use Aquilinoflores\PhpSecCheck\Checks\FileUploadCheck;
-use Aquilinoflores\PhpSecCheck\Checks\XssOutputCheck;
-use Aquilinoflores\PhpSecCheck\Checks\SqlInjectionCheck;
-use Aquilinoflores\PhpSecCheck\Checks\UnserializeCheck;
-use Aquilinoflores\PhpSecCheck\Checks\Laravel\EnvCredentialsCheck;
-use Aquilinoflores\PhpSecCheck\Checks\Laravel\VendorCheck;
-
-$projectRoot = base_path();
-
-$checks = [
-    new PhpVersionCheck(),
-    new DangerousFunctionsCheck(),              // php.ini disable_functions
-    new UnsafeFunctionUsageCheck(),             // token_get_all() source scan
-    new DirectoryExposureCheck(),               // document-root .git / vendor / dumps
-    new SessionSecurityCheck(),                 // runtime php.ini; pass an ini map in tests
-    new CookieFlagsCheck(),                     // Secure / HttpOnly / SameSite
-    new FileUploadCheck(),                      // move_uploaded_file() dest heuristics
-    new XssOutputCheck(),                       // unescaped echo / Blade {!! !!}
-    new SqlInjectionCheck(),                    // concatenated SQL with untrusted input
-    new UnserializeCheck(),                     // unserialize() / maybe_unserialize()
-    new EnvCredentialsCheck(['CUSTOM_SECRET', 'ANOTHER_KEY']),
-    new VendorCheck(),
-];
-
-$allIssues = [];
-foreach ($checks as $check) {
-    $allIssues = array_merge($allIssues, $check->run($projectRoot));
-}
-
-// Filter by severity
-$critical = array_filter($allIssues, fn(Issue $i) => $i->severity === Issue::CRITICAL);
-$warnings = array_filter($allIssues, fn(Issue $i) => $i->severity === Issue::WARN);
-
-// Serialize for an API response
-$payload = array_map(fn(Issue $i) => $i->toArray(), $allIssues);
-return response()->json($payload);
-```
-
-Each `Issue` object exposes:
-
-| Property / Method | Description |
-|---|---|
-| `$issue->severity` | `'CRITICAL'`, `'WARN'`, or `'INFO'` |
-| `$issue->message` | Human-readable description of the finding |
-| `$issue->check` | Name of the check class that produced the issue |
-| `$issue->toArray()` | Serializes to `['severity', 'message', 'check']` |
-| `(string) $issue` | Returns `$issue->message` |
-
-### Adding Custom Checks
-
-All checks implement the `CheckInterface` contract:
-
-```php
-use Aquilinoflores\PhpSecCheck\Checks\CheckInterface;
-use Aquilinoflores\PhpSecCheck\Issue;
-
-class MyCustomCheck implements CheckInterface
-{
-    public function run(string $projectRoot): array
+  "summary": {
+    "total": 1,
+    "critical": 1,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0,
+    "hidden": 2,
+    "threshold": "high"
+  },
+  "findings": [
     {
-        $issues = [];
-
-        // ... your detection logic ...
-
-        if ($somethingBad) {
-            $issues[] = new Issue(Issue::CRITICAL, 'Something critical was found.', 'MyCustomCheck');
-        }
-
-        return $issues;
+      "ruleId": "PSC-SRC-080",
+      "severity": "critical",
+      "confidence": "likely",
+      "title": "include uses $_GET in index.php:12. The request chooses which file PHP loads.",
+      "message": "include uses $_GET in index.php:12. The request chooses which file PHP loads.",
+      "recommendation": "Include a fixed file. If a page name has to vary, map it through an allow-list the application owns.",
+      "path": "index.php",
+      "line": 12,
+      "check": "IncludeRequestCheck"
     }
+  ]
 }
 ```
 
-To add a new built-in check, create the class in `src/Checks/` and register it in `bin/sec-check`.
+## Programmatic use
 
----
+```php
+use Aquilinoflores\PhpSecCheck\Config\ScanOptions;
+use Aquilinoflores\PhpSecCheck\Scan\ProjectScanner;
 
-## Running Tests
+$findings = (new ProjectScanner())->scan('/path/to/project', new ScanOptions(
+    profile: 'legacy',
+    minSeverity: 'high',
+));
+```
 
-The test suite uses PHPUnit and covers all PHP and Laravel checks:
+`ProjectScanner::scan()` returns every finding. The CLI applies the threshold when it prints. Each check implements `CheckInterface` and returns `Issue` objects, which are `Finding` objects.
+
+## Tests
 
 ```bash
+composer install
 composer test
 ```
 
-Tests live in `tests/Checks/` and `tests/Checks/Laravel/`, mirroring the `src/` structure. Token-scanner tests are in `tests/Scan/`. PHP support-calendar tests are in `tests/Php/`. Git working-tree helpers are covered in `tests/Git/`. Directory-exposure, session-security, and cookie-flags tests are in `tests/Checks/`. Integration tests for programmatic usage, JSON output, and exit codes are in `tests/Integration/`.
-
----
-
-## Contributing
-
-Contributions are welcome and encouraged!
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-check-name`
-3. Implement your check in `src/Checks/`, following the `CheckInterface` contract
-4. **Write tests** for your check in the corresponding `tests/Checks/` directory — PRs without tests will not be merged
-5. Verify the full suite passes: `composer test`
-6. Commit your changes: `git commit -m "feat: add your-check-name check"`
-7. Push to your fork and open a Pull Request
-
-**Guidelines:**
-- Keep checks modular and focused on a single security concern
-- Every new check must return `Issue[]` with an appropriate severity level
-- Every new check class must have a corresponding `*Test.php` file
-- Every bug fix must include a regression test that would have caught the bug
-- Tests must pass before a PR will be reviewed
-
----
+PHPUnit 11. CI runs PHP 8.2, 8.3, and 8.4.
 
 ## License
 
-This project is open-source software licensed under the [MIT License](LICENSE).
+MIT. See [LICENSE](LICENSE).

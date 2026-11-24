@@ -3,7 +3,6 @@
 namespace Aquilinoflores\PhpSecCheck\Checks;
 
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 use Aquilinoflores\PhpSecCheck\Scan\PhpFunctionCallScanner;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -17,6 +16,9 @@ use SplFileInfo;
  */
 class FileUploadCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-SRC-010';
+
+    public const RECOMMENDATION = 'Store uploads outside the document root, generate the filename on the server, and allow only extensions the application can safely serve.';
     private const SKIP_DIR_FRAGMENTS = [
         '/vendor/',
         '/node_modules/',
@@ -31,11 +33,7 @@ class FileUploadCheck implements CheckInterface
     {
         $issues = [];
 
-        echo "[FILE UPLOAD]\n";
-
         if ($projectRoot === '' || !is_dir($projectRoot)) {
-            Output::info('No project root to scan for file uploads.');
-            echo "\n";
             return $issues;
         }
 
@@ -69,11 +67,6 @@ class FileUploadCheck implements CheckInterface
             }
         }
 
-        if ($issues === []) {
-            Output::ok('No unsafe move_uploaded_file() destinations detected.');
-        }
-
-        echo "\n";
         return $issues;
     }
 
@@ -242,8 +235,13 @@ class FileUploadCheck implements CheckInterface
      */
     private function add(array &$issues, string $severity, string $message): void
     {
-        $issue = new Issue($severity, $message, 'FileUploadCheck');
-        $issues[] = $issue;
-        Output::issue($issue);
+        $issues[] = new Issue(
+            $severity,
+            $message,
+            'FileUploadCheck',
+            self::RULE_ID,
+            $severity === Issue::CRITICAL ? Issue::LIKELY : Issue::HEURISTIC,
+            self::RECOMMENDATION,
+        );
     }
 }

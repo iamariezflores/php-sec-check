@@ -4,11 +4,13 @@ namespace Aquilinoflores\PhpSecCheck\Checks\Laravel;
 
 use Aquilinoflores\PhpSecCheck\Checks\CheckInterface;
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 use InvalidArgumentException;
 
 class AppDebugCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-LAR-001';
+
+    public const RECOMMENDATION = 'Set APP_DEBUG=false before the application is reachable in production.';
     public function run(string $projectRoot): array
     {
         if (empty($projectRoot) || !is_dir($projectRoot)) {
@@ -17,13 +19,9 @@ class AppDebugCheck implements CheckInterface
 
         $issues = [];
 
-        echo "[APP DEBUG]\n";
-
         $envFile = $projectRoot . '/.env';
 
         if (!file_exists($envFile)) {
-            Output::info('No .env file found. Skipping APP_DEBUG check.');
-            echo "\n";
             return $issues;
         }
 
@@ -42,27 +40,26 @@ class AppDebugCheck implements CheckInterface
         $debugEnabled = in_array($debug, ['true', '1', 'on'], true);
 
         if ($debugEnabled && $env === 'production') {
-            $issue = new Issue(
+            $issues[] = new Issue(
                 Issue::CRITICAL,
                 'APP_DEBUG is enabled while APP_ENV is set to "production". This exposes stack traces and environment data to end users.',
-                'AppDebugCheck'
+                'AppDebugCheck',
+                self::RULE_ID,
+                Issue::LIKELY,
+                self::RECOMMENDATION,
             );
-            $issues[] = $issue;
-            Output::issue($issue);
         } elseif ($debugEnabled) {
             $envLabel = $env ?? 'unknown';
-            $issue = new Issue(
+            $issues[] = new Issue(
                 Issue::WARN,
                 "APP_DEBUG is enabled (APP_ENV={$envLabel}). Ensure this is disabled before deploying to production.",
-                'AppDebugCheck'
+                'AppDebugCheck',
+                self::RULE_ID,
+                Issue::HEURISTIC,
+                self::RECOMMENDATION,
             );
-            $issues[] = $issue;
-            Output::issue($issue);
-        } else {
-            Output::ok('APP_DEBUG is not enabled.');
         }
 
-        echo "\n";
         return $issues;
     }
 

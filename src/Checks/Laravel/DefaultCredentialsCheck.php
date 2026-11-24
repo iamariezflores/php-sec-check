@@ -4,11 +4,13 @@ namespace Aquilinoflores\PhpSecCheck\Checks\Laravel;
 
 use Aquilinoflores\PhpSecCheck\Checks\CheckInterface;
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 use InvalidArgumentException;
 
 class DefaultCredentialsCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-LAR-002';
+
+    public const RECOMMENDATION = 'Give the application its own database user and a password that is not a product default.';
     private const DEFAULT_USERNAMES = ['root', 'admin', 'postgres', 'sa'];
 
     public function run(string $projectRoot): array
@@ -19,13 +21,9 @@ class DefaultCredentialsCheck implements CheckInterface
 
         $issues = [];
 
-        echo "[DEFAULT CREDENTIALS]\n";
-
         $envFile = $projectRoot . '/.env';
 
         if (!file_exists($envFile)) {
-            Output::info('No .env file found. Skipping default credentials check.');
-            echo "\n";
             return $issues;
         }
 
@@ -36,41 +34,39 @@ class DefaultCredentialsCheck implements CheckInterface
         $dbHost     = $this->getValue('DB_HOST', $contents);
 
         if ($dbUsername !== null && in_array(strtolower($dbUsername), self::DEFAULT_USERNAMES, true)) {
-            $issue = new Issue(
+            $issues[] = new Issue(
                 Issue::WARN,
                 "DB_USERNAME is set to '{$dbUsername}'. Using default database usernames is a security risk.",
-                'DefaultCredentialsCheck'
+                'DefaultCredentialsCheck',
+                self::RULE_ID,
+                Issue::HEURISTIC,
+                self::RECOMMENDATION,
             );
-            $issues[] = $issue;
-            Output::issue($issue);
         }
 
         if ($dbPassword !== null && ($dbPassword === '' || strtolower($dbPassword) === 'null')) {
-            $issue = new Issue(
+            $issues[] = new Issue(
                 Issue::CRITICAL,
                 'DB_PASSWORD is empty or null. A database without a password is a critical security risk.',
-                'DefaultCredentialsCheck'
+                'DefaultCredentialsCheck',
+                self::RULE_ID,
+                Issue::LIKELY,
+                self::RECOMMENDATION,
             );
-            $issues[] = $issue;
-            Output::issue($issue);
         }
 
         $localHosts = ['localhost', '127.0.0.1', '::1'];
         if ($dbHost !== null && in_array(strtolower($dbHost), $localHosts, true) && !empty($issues)) {
-            $issue = new Issue(
+            $issues[] = new Issue(
                 Issue::WARN,
                 "DB_HOST is set to '{$dbHost}' with weak credentials. Ensure this is not publicly accessible.",
-                'DefaultCredentialsCheck'
+                'DefaultCredentialsCheck',
+                self::RULE_ID,
+                Issue::HEURISTIC,
+                self::RECOMMENDATION,
             );
-            $issues[] = $issue;
-            Output::issue($issue);
         }
 
-        if (empty($issues)) {
-            Output::ok('No default or weak database credentials detected.');
-        }
-
-        echo "\n";
         return $issues;
     }
 

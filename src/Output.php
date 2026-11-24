@@ -28,7 +28,8 @@ class Output
     {
         match ($issue->severity) {
             Issue::CRITICAL => static::critical($issue->message),
-            Issue::INFO     => static::info($issue->message),
+            Issue::HIGH     => static::warn($issue->message),
+            Issue::INFO, Issue::LOW => static::info($issue->message),
             default         => static::warn($issue->message),
         };
     }

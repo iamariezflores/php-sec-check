@@ -5,10 +5,12 @@ namespace Aquilinoflores\PhpSecCheck\Tests\Integration;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Exit Code Tests
+ * CLI exit codes.
  *
- * Verifies that the CLI exits with code 0 (clean) or 1 (issues found),
- * which is required for CI/CD pipelines to correctly detect failures.
+ * 0 — nothing at or above the threshold.
+ * 1 — a finding meets the threshold.
+ * 2 — invalid arguments.
+ * 3 — the path cannot be read.
  */
 class ExitCodeTest extends TestCase
 {
@@ -19,8 +21,6 @@ class ExitCodeTest extends TestCase
     {
         $this->tempDir = sys_get_temp_dir() . '/php-sec-check-exit-test-' . uniqid();
         mkdir($this->tempDir, 0777, true);
-
-        // Resolve the bin path relative to this test file
         $this->binPath = dirname(__DIR__, 2) . '/bin/sec-check';
     }
 
@@ -42,82 +42,114 @@ class ExitCodeTest extends TestCase
     }
 
     /**
-     * Run sec-check against a given directory and return the exit code.
+     * @param list<string> $args
+     * @return array{exit: int, stdout: string, stderr: string}
      */
-    private function runSecCheck(string $projectRoot): int
+    private function runSecCheck(array $args = [], ?string $cwd = null): array
     {
-        $php = PHP_BINARY;
-        $bin = escapeshellarg($this->binPath);
-        $dir = escapeshellarg($projectRoot);
-
-        exec("cd $dir && $php $bin 2>/dev/null", $output, $exitCode);
-
-        return $exitCode;
-    }
-
-    // -------------------------------------------------------------------------
-    // Exit code 0 — no issues
-    // -------------------------------------------------------------------------
-
-    public function test_exits_zero_when_no_issues_found(): void
-    {
-        // An empty directory with no composer.lock, no .env, no vendor/ — clean.
-        // The only checks that can fire are PHP version and display_errors/dangerous
-        // functions, both of which depend on the runtime ini. We test the shape
-        // of the exit logic, not the specific runtime state.
-        $exitCode = $this->runSecCheck($this->tempDir);
-
-        $this->assertContains(
-            $exitCode,
-            [0, 1],
-            'Exit code must be 0 (clean) or 1 (issues found) — never anything else.'
+        $proc = proc_open(
+            array_merge([PHP_BINARY, $this->binPath], $args),
+            [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ],
+            $pipes,
+            $cwd ?? $this->tempDir
         );
+
+        $this->assertIsResource($proc);
+
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return [
+            'exit'   => proc_close($proc),
+            'stdout' => $stdout,
+            'stderr' => $stderr,
+        ];
     }
 
-    // -------------------------------------------------------------------------
-    // Exit code 1 — issues found
-    // -------------------------------------------------------------------------
+    public function test_default_threshold_omits_medium_findings(): void
+    {
+        file_put_contents($this->tempDir . '/.env', "DB_PASSWORD=password\n");
+
+        $result = $this->runSecCheck();
+
+        $this->assertStringNotContainsString('DB_PASSWORD', $result['stdout']);
+        $this->assertStringContainsString('hidden below high', $result['stdout']);
+        $this->assertFileDoesNotExist($this->tempDir . '/php-sec-check-config.php');
+        $this->assertContains($result['exit'], [0, 1]);
+    }
 
     public function test_exits_one_when_env_is_publicly_accessible(): void
     {
-        touch($this->tempDir . '/artisan');
-        mkdir($this->tempDir . '/bootstrap', 0777, true);
-        mkdir($this->tempDir . '/public', 0777, true);
-        file_put_contents($this->tempDir . '/bootstrap/app.php', '<?php return new class {};');
-        file_put_contents($this->tempDir . '/.env', "APP_KEY=base64:SomeSuperSecretKey=\n");
+        mkdir($this->tempDir . '/public');
         file_put_contents($this->tempDir . '/public/.env', "APP_KEY=base64:SomeSuperSecretKey=\n");
 
-        $exitCode = $this->runSecCheck($this->tempDir);
+        $result = $this->runSecCheck([$this->tempDir], dirname($this->tempDir));
 
-        $this->assertSame(1, $exitCode, 'Should exit 1 when .env is web-accessible.');
+        $this->assertSame(1, $result['exit']);
+        $this->assertStringContainsString('public/.env', $result['stdout']);
+        $this->assertStringContainsString($this->tempDir, $result['stdout']);
     }
 
-    public function test_exits_one_when_vendor_not_in_gitignore(): void
+    public function test_medium_threshold_fails_on_a_medium_finding(): void
     {
-        // Simulate a Laravel project with vendor/ not ignored
-        touch($this->tempDir . '/artisan');
-        mkdir($this->tempDir . '/bootstrap', 0777, true);
-        file_put_contents($this->tempDir . '/bootstrap/app.php', '<?php return new class {};');
-        mkdir($this->tempDir . '/vendor', 0777, true);
-        file_put_contents($this->tempDir . '/.gitignore', ".env\n");
+        file_put_contents($this->tempDir . '/.env', "DB_PASSWORD=password\n");
 
-        $exitCode = $this->runSecCheck($this->tempDir);
+        $result = $this->runSecCheck(['--min-severity=medium']);
 
-        $this->assertSame(1, $exitCode, 'Should exit 1 when vendor/ is not in .gitignore.');
+        $this->assertSame(1, $result['exit']);
+        $this->assertStringContainsString('DB_PASSWORD', $result['stdout']);
     }
 
-    // -------------------------------------------------------------------------
-    // Exit code is always 0 or 1 — never unexpected values
-    // -------------------------------------------------------------------------
-
-    public function test_exit_code_is_always_zero_or_one(): void
+    public function test_unknown_option_exits_two(): void
     {
-        $exitCode = $this->runSecCheck($this->tempDir);
+        $result = $this->runSecCheck(['--nope']);
 
-        $this->assertContains(
-            $exitCode,
-            [0, 1],
-            'The CLI must only ever exit with 0 or 1.'
-        );
+        $this->assertSame(2, $result['exit']);
+        $this->assertStringContainsString('Unknown option', $result['stderr']);
+    }
+
+    public function test_missing_directory_exits_three(): void
+    {
+        $result = $this->runSecCheck([$this->tempDir . '/missing']);
+
+        $this->assertSame(3, $result['exit']);
+        $this->assertStringContainsString('Not a directory', $result['stderr']);
+    }
+
+    public function test_init_writes_config_and_refuses_to_overwrite(): void
+    {
+        $created = $this->runSecCheck(['init']);
+        $this->assertSame(0, $created['exit']);
+        $this->assertFileExists($this->tempDir . '/php-sec-check-config.php');
+
+        $again = $this->runSecCheck(['init']);
+        $this->assertSame(2, $again['exit']);
+        $this->assertStringContainsString('already exists', $again['stderr']);
+    }
+
+    public function test_rules_lists_ids_and_exits_zero(): void
+    {
+        $result = $this->runSecCheck(['rules']);
+
+        $this->assertSame(0, $result['exit']);
+        $this->assertStringContainsString('PSC-SRC-080', $result['stdout']);
+        $this->assertStringContainsString('PSC-WEB-001', $result['stdout']);
+    }
+
+    public function test_exclude_hides_a_public_env_path(): void
+    {
+        mkdir($this->tempDir . '/public');
+        file_put_contents($this->tempDir . '/public/.env', "APP_KEY=base64:SomeSuperSecretKey=\n");
+
+        $result = $this->runSecCheck(['--exclude=public/.env', '--min-severity=info']);
+
+        $this->assertStringNotContainsString('public/.env', $result['stdout']);
     }
 }

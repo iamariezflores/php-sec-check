@@ -271,4 +271,19 @@ PHP);
             $this->assertSame('CookieFlagsCheck', $issue->check);
         }
     }
+
+    public function test_htaccess_cookie_httponly_off_is_critical(): void
+    {
+        file_put_contents($this->tempDir . '/.htaccess', "php_flag session.cookie_httponly off\n");
+
+        ob_start();
+        $result = (new CookieFlagsCheck())->run($this->tempDir);
+        ob_end_clean();
+
+        $this->assertCount(1, $result);
+        $this->assertSame(Issue::CRITICAL, $result[0]->severity);
+        $this->assertSame(Issue::CONFIRMED, $result[0]->confidence);
+        $this->assertStringContainsString('session.cookie_httponly is disabled', $result[0]->message);
+        $this->assertSame('.htaccess', $result[0]->path);
+    }
 }

@@ -5,35 +5,29 @@ namespace Aquilinoflores\PhpSecCheck\Checks\Laravel;
 use Aquilinoflores\PhpSecCheck\Checks\CheckInterface;
 use Aquilinoflores\PhpSecCheck\Git\GitWorkingTree;
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 
 class VendorCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-FILE-010';
+
+    public const RECOMMENDATION = 'Add vendor/ to .gitignore and stop tracking generated dependency files.';
     public function run(string $projectRoot): array
     {
         $issues    = [];
         $gitignore = $projectRoot . '/.gitignore';
         $vendorDir = $projectRoot . '/vendor';
 
-        echo "[VENDOR CHECK]\n";
-
-        if (file_exists($vendorDir)) {
-            if (!$this->vendorIsIgnored($projectRoot, $gitignore)) {
-                $issue = new Issue(
-                    Issue::WARN,
-                    'vendor/ directory exists and is not ignored in .gitignore!',
-                    'VendorCheck'
-                );
-                $issues[] = $issue;
-                Output::issue($issue);
-            } else {
-                Output::ok('vendor/ is correctly excluded in .gitignore.');
-            }
-        } else {
-            Output::ok('No vendor/ directory found (or it is already excluded).');
+        if (file_exists($vendorDir) && !$this->vendorIsIgnored($projectRoot, $gitignore)) {
+            $issues[] = new Issue(
+                Issue::WARN,
+                'vendor/ directory exists and is not ignored in .gitignore!',
+                'VendorCheck',
+                self::RULE_ID,
+                Issue::HEURISTIC,
+                self::RECOMMENDATION,
+            );
         }
 
-        echo "\n";
         return $issues;
     }
 

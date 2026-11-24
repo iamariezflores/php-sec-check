@@ -3,7 +3,6 @@
 namespace Aquilinoflores\PhpSecCheck\Checks;
 
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 use Aquilinoflores\PhpSecCheck\Scan\PhpFunctionCallScanner;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -18,6 +17,9 @@ use SplFileInfo;
  */
 class SqlInjectionCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-SRC-030';
+
+    public const RECOMMENDATION = 'Build the query with placeholders and pass request values as bound parameters.';
     private const SKIP_DIR_FRAGMENTS = [
         '/vendor/',
         '/node_modules/',
@@ -71,11 +73,7 @@ class SqlInjectionCheck implements CheckInterface
     {
         $issues = [];
 
-        echo "[SQL INJECTION]\n";
-
         if ($projectRoot === '' || !is_dir($projectRoot)) {
-            Output::info('No project root to scan for SQL injection.');
-            echo "\n";
             return $issues;
         }
 
@@ -93,15 +91,9 @@ class SqlInjectionCheck implements CheckInterface
 
             foreach ($found as $issue) {
                 $issues[] = $issue;
-                Output::issue($issue);
             }
         }
 
-        if ($issues === []) {
-            Output::ok('No concatenated SQL with untrusted input detected.');
-        }
-
-        echo "\n";
         return $issues;
     }
 
@@ -696,7 +688,14 @@ class SqlInjectionCheck implements CheckInterface
             }
         }
 
-        $found[$line] = new Issue(Issue::CRITICAL, $message, 'SqlInjectionCheck');
+        $found[$line] = new Issue(
+            Issue::CRITICAL,
+            $message,
+            'SqlInjectionCheck',
+            self::RULE_ID,
+            Issue::LIKELY,
+            self::RECOMMENDATION,
+        );
     }
 
     /**

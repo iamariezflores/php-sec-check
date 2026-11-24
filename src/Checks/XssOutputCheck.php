@@ -3,7 +3,6 @@
 namespace Aquilinoflores\PhpSecCheck\Checks;
 
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
@@ -17,6 +16,9 @@ use SplFileInfo;
  */
 class XssOutputCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-SRC-020';
+
+    public const RECOMMENDATION = 'Escape the value with htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, \'UTF-8\') before writing it into HTML.';
     private const SKIP_DIR_FRAGMENTS = [
         '/vendor/',
         '/node_modules/',
@@ -38,11 +40,7 @@ class XssOutputCheck implements CheckInterface
     {
         $issues = [];
 
-        echo "[XSS OUTPUT]\n";
-
         if ($projectRoot === '' || !is_dir($projectRoot)) {
-            Output::info('No project root to scan for XSS output.');
-            echo "\n";
             return $issues;
         }
 
@@ -60,11 +58,6 @@ class XssOutputCheck implements CheckInterface
             $this->scanBladeRaw($source, $relative, $issues);
         }
 
-        if ($issues === []) {
-            Output::ok('No unescaped HTML output of untrusted input detected.');
-        }
-
-        echo "\n";
         return $issues;
     }
 
@@ -393,8 +386,13 @@ class XssOutputCheck implements CheckInterface
      */
     private function add(array &$issues, string $severity, string $message): void
     {
-        $issue = new Issue($severity, $message, 'XssOutputCheck');
-        $issues[] = $issue;
-        Output::issue($issue);
+        $issues[] = new Issue(
+            $severity,
+            $message,
+            'XssOutputCheck',
+            self::RULE_ID,
+            $severity === Issue::CRITICAL ? Issue::LIKELY : Issue::HEURISTIC,
+            self::RECOMMENDATION,
+        );
     }
 }

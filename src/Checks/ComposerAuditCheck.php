@@ -3,20 +3,18 @@
 namespace Aquilinoflores\PhpSecCheck\Checks;
 
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 
 class ComposerAuditCheck implements CheckInterface
 {
+    public const RULE_FAILED = 'PSC-DEP-001';
+    public const RULE_ADVISORY = 'PSC-DEP-002';
+
     public function run(string $projectRoot): array
     {
         $issues = [];
 
-        echo "[COMPOSER DEPENDENCIES]\n";
-
         $lockFile = $projectRoot . '/composer.lock';
         if (!file_exists($lockFile)) {
-            Output::info('No composer.lock found. Skipping dependency audit.');
-            echo "\n";
             return $issues;
         }
 
@@ -24,37 +22,32 @@ class ComposerAuditCheck implements CheckInterface
         $advisories = $data === null ? null : $this->advisories($data);
 
         if ($advisories === null) {
-            $issue = new Issue(
+            $issues[] = new Issue(
                 Issue::WARN,
                 'composer audit could not be completed, so dependency vulnerabilities were not checked.',
-                'ComposerAuditCheck'
+                'ComposerAuditCheck',
+                self::RULE_FAILED,
+                Issue::HEURISTIC,
+                'Run composer audit --locked in this directory and read its output. This check only wraps that command.',
             );
-            $issues[] = $issue;
-            Output::issue($issue);
-            echo "\n";
             return $issues;
         }
 
-        if ($advisories !== []) {
-            Output::warn('Vulnerable dependencies found:');
-            foreach ($advisories as $package => $packageAdvisories) {
-                foreach ($packageAdvisories as $adv) {
-                    $title = (string) ($adv['title'] ?? 'Security advisory');
-                    $cve   = (string) ($adv['cve'] ?? $adv['advisoryId'] ?? 'unknown');
-                    $issue = new Issue(
-                        Issue::CRITICAL,
-                        "{$package}: {$title} ({$cve})",
-                        'ComposerAuditCheck'
-                    );
-                    $issues[] = $issue;
-                    echo "  - {$issue->message}\n";
-                }
+        foreach ($advisories as $package => $packageAdvisories) {
+            foreach ($packageAdvisories as $adv) {
+                $title = (string) ($adv['title'] ?? 'Security advisory');
+                $cve   = (string) ($adv['cve'] ?? $adv['advisoryId'] ?? 'unknown');
+                $issues[] = new Issue(
+                    Issue::CRITICAL,
+                    "{$package}: {$title} ({$cve})",
+                    'ComposerAuditCheck',
+                    self::RULE_ADVISORY,
+                    Issue::CONFIRMED,
+                    'Upgrade the affected package to a version that includes the fix, then regenerate composer.lock.',
+                );
             }
-        } else {
-            Output::ok('No known vulnerabilities found in dependencies.');
         }
 
-        echo "\n";
         return $issues;
     }
 

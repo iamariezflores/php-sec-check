@@ -5,7 +5,7 @@ namespace Aquilinoflores\PhpSecCheck\Checks;
 use Aquilinoflores\PhpSecCheck\Git\GitStatus;
 use Aquilinoflores\PhpSecCheck\Git\GitWorkingTree;
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
+use Aquilinoflores\PhpSecCheck\Scan\TargetLayout;
 use FilesystemIterator;
 use RecursiveCallbackFilterIterator;
 use RecursiveDirectoryIterator;
@@ -21,6 +21,9 @@ use SplFileInfo;
  */
 class DirectoryExposureCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-FILE-001';
+
+    public const RECOMMENDATION = 'Move the path out of the document root, or deny it in the web server configuration. Git ignore rules do not stop a web server from serving a file.';
     /**
      * Immediate child directories of the document root that must not be public.
      * Laravel `public/storage` is a symlink and is skipped separately.
@@ -43,18 +46,12 @@ class DirectoryExposureCheck implements CheckInterface
     {
         $issues = [];
 
-        echo "[DIRECTORY EXPOSURE]\n";
-
         if ($projectRoot === '' || !is_dir($projectRoot)) {
-            Output::info('No project root to scan for exposed directories.');
-            echo "\n";
             return $issues;
         }
 
         $docRoots = $this->documentRoots($projectRoot);
         if ($docRoots === []) {
-            Output::info('No document root detected (no public/ directory and no project-root index.php).');
-            echo "\n";
             return $issues;
         }
 
@@ -64,11 +61,6 @@ class DirectoryExposureCheck implements CheckInterface
             $this->scanDocumentRoot($relative, $absolute, $git, $issues);
         }
 
-        if ($issues === []) {
-            Output::ok('No sensitive files or directories found in the document root.');
-        }
-
-        echo "\n";
         return $issues;
     }
 
@@ -77,22 +69,7 @@ class DirectoryExposureCheck implements CheckInterface
      */
     private function documentRoots(string $projectRoot): array
     {
-        $root    = rtrim(str_replace('\\', '/', $projectRoot), '/');
-        $public  = $root . '/public';
-        $roots   = [];
-
-        if (is_dir($public)) {
-            $roots['public'] = $public;
-        }
-
-        $publicIndex = is_file($public . '/index.php');
-        $rootIndex   = is_file($root . '/index.php');
-
-        if ($rootIndex && !$publicIndex) {
-            $roots[''] = $root;
-        }
-
-        return $roots;
+        return TargetLayout::documentRoots($projectRoot);
     }
 
     /**
@@ -308,8 +285,13 @@ class DirectoryExposureCheck implements CheckInterface
             $message .= ' Git ignore rules do not stop a web server from serving this path.';
         }
 
-        $issue = new Issue($severity, $message, 'DirectoryExposureCheck');
-        $issues[] = $issue;
-        Output::issue($issue);
+        $issues[] = new Issue(
+            $severity,
+            $message,
+            'DirectoryExposureCheck',
+            self::RULE_ID,
+            Issue::CONFIRMED,
+            self::RECOMMENDATION,
+        );
     }
 }

@@ -1,6 +1,6 @@
 {
     "name": "iamariezflores/php-sec-check",
-    "description": "PHP Security Check Tool",
+    "description": "Security auditor for traditional PHP applications",
     "type": "library",
     "autoload": {
         "psr-4": {
@@ -13,10 +13,12 @@
         }
     },
     "scripts": {
-        "test": "phpunit"
+        "test": "phpunit",
+        "phar": "php -d phar.readonly=0 build/phar.php"
     },
     "license": "MIT",
     "bin": [
+        "bin/php-sec-check",
         "bin/sec-check"
     ],
     "authors": [

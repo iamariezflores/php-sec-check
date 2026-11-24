@@ -333,4 +333,17 @@ class DirectoryExposureCheckTest extends TestCase
         $this->assertFinding($issues, 'public/vendor', Issue::CRITICAL);
         $this->assertStringNotContainsString('ignore rules', $issues[0]->message);
     }
+
+    public function test_public_html_with_index_and_git_is_critical(): void
+    {
+        mkdir($this->tempDir . '/public_html', 0777, true);
+        file_put_contents($this->tempDir . '/public_html/index.php', "<?php\n");
+        mkdir($this->tempDir . '/public_html/.git', 0777, true);
+        file_put_contents($this->tempDir . '/public_html/.git/HEAD', "ref: refs/heads/main\n");
+
+        $issues = $this->runCheck();
+
+        $this->assertNotEmpty($issues);
+        $this->assertFinding($issues, 'public_html/.git', Issue::CRITICAL);
+    }
 }

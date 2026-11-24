@@ -19,6 +19,12 @@
             <file>tests/Checks/XssOutputCheckTest.php</file>
             <file>tests/Checks/SqlInjectionCheckTest.php</file>
             <file>tests/Checks/UnserializeCheckTest.php</file>
+            <file>tests/Checks/HtaccessCheckTest.php</file>
+            <file>tests/Checks/IncludeRequestCheckTest.php</file>
+            <file>tests/Checks/WeakPasswordHashCheckTest.php</file>
+            <file>tests/Checks/InsecureRandomCheckTest.php</file>
+            <file>tests/Checks/UnsafeTlsCheckTest.php</file>
+            <file>tests/Checks/FilePermissionCheckTest.php</file>
         </testsuite>
         <testsuite name="Scan">
             <directory>tests/Scan</directory>

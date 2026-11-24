@@ -3,7 +3,8 @@
 namespace Aquilinoflores\PhpSecCheck\Checks;
 
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
+use Aquilinoflores\PhpSecCheck\Php\ProjectPhpSettings;
+use Aquilinoflores\PhpSecCheck\Scan\TargetLayout;
 
 /**
  * Session configuration: php.ini hardening, plus Laravel session.php when
@@ -12,6 +13,9 @@ use Aquilinoflores\PhpSecCheck\Output;
  */
 class SessionSecurityCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-RUN-030';
+
+    public const RECOMMENDATION = 'Set session.use_strict_mode=1, session.use_only_cookies=1, and session.use_trans_sid=0 in the deployed PHP configuration. Keep the session save path outside the document root.';
     /**
      * Hardened PHP 8.2+ session settings used as the clean baseline in tests.
      *
@@ -31,27 +35,27 @@ class SessionSecurityCheck implements CheckInterface
     public const MIN_ENTROPY    = 128;
 
     /**
-     * @param array<string, string>|null $sessionIni  ini name => value; null reads runtime ini
+     * @param array<string, string>|null $sessionIni  injected map for tests; null reads the project files
      */
-    public function __construct(private readonly ?array $sessionIni = null) {}
+    public function __construct(
+        private readonly ?array $sessionIni = null,
+        private readonly bool $frameworkExtras = true,
+    ) {}
 
     public function run(string $projectRoot): array
     {
         $issues = [];
 
-        echo "[SESSION SECURITY]\n";
+        if ($this->sessionIni !== null) {
+            $this->checkIni($projectRoot, $issues);
+        } else {
+            $this->checkProject($projectRoot, $issues);
+        }
 
-        $this->checkIni($projectRoot, $issues);
-
-        if ($this->isLaravel($projectRoot)) {
+        if ($this->frameworkExtras && $this->isLaravel($projectRoot)) {
             $this->checkLaravel($projectRoot, $issues);
         }
 
-        if ($issues === []) {
-            Output::ok('Session configuration looks locked down.');
-        }
-
-        echo "\n";
         return $issues;
     }
 
@@ -287,17 +291,10 @@ class SessionSecurityCheck implements CheckInterface
             return false;
         }
 
-        $root   = $this->normalizePath($projectRoot);
-        $public = $root . '/public';
-
-        if (is_dir($projectRoot . '/public') && $this->isUnder($resolved, $public)) {
-            return true;
-        }
-
-        $publicIndex = is_file($projectRoot . '/public/index.php');
-        $rootIndex   = is_file($projectRoot . '/index.php');
-        if ($rootIndex && !$publicIndex && $this->isUnder($resolved, $root)) {
-            return true;
+        foreach (TargetLayout::documentRoots($projectRoot) as $absolute) {
+            if ($this->isUnder($resolved, $this->normalizePath($absolute))) {
+                return true;
+            }
         }
 
         return false;
@@ -378,10 +375,59 @@ class SessionSecurityCheck implements CheckInterface
     /**
      * @param list<Issue> $issues
      */
-    private function add(array &$issues, string $severity, string $message): void
+    /**
+     * @param list<Issue> $issues
+     */
+    private function checkProject(string $projectRoot, array &$issues): void
     {
-        $issue = new Issue($severity, $message, 'SessionSecurityCheck');
-        $issues[] = $issue;
-        Output::issue($issue);
+        if ($projectRoot === '' || !is_dir($projectRoot)) {
+            return;
+        }
+
+        $settings = ProjectPhpSettings::load($projectRoot);
+        foreach ($settings->directives('session.use_trans_sid') as $directive) {
+            if ($directive->isEnabled()) {
+                $this->add($issues, Issue::CRITICAL, "session.use_trans_sid is enabled in {$directive->path}:{$directive->line}. Session IDs will leak in URLs and Referer headers. Set session.use_trans_sid=0.", Issue::CONFIRMED, $directive->path, $directive->line);
+            }
+        }
+        foreach ($settings->directives('session.use_only_cookies') as $directive) {
+            if ($directive->isDisabled()) {
+                $this->add($issues, Issue::CRITICAL, "session.use_only_cookies is disabled in {$directive->path}:{$directive->line}. Session IDs can be passed in URLs. Set session.use_only_cookies=1.", Issue::CONFIRMED, $directive->path, $directive->line);
+            }
+        }
+        foreach ($settings->directives('session.use_strict_mode') as $directive) {
+            if ($directive->isDisabled()) {
+                $this->add($issues, Issue::WARN, "session.use_strict_mode is disabled in {$directive->path}:{$directive->line}. Enable it so PHP rejects uninitialized session IDs (session fixation).", Issue::CONFIRMED, $directive->path, $directive->line);
+            }
+        }
+        foreach ($settings->directives('session.save_path') as $directive) {
+            $savePath = $this->savePathDirectory($directive->value);
+            if ($savePath !== '' && $this->isWebAccessiblePath($projectRoot, $savePath)) {
+                $this->add($issues, Issue::CRITICAL, "session.save_path '{$savePath}' in {$directive->path}:{$directive->line} is inside the document root. Session files must not be web-accessible.", Issue::CONFIRMED, $directive->path, $directive->line);
+            }
+        }
+    }
+
+    /**
+     * @param list<Issue> $issues
+     */
+    private function add(
+        array &$issues,
+        string $severity,
+        string $message,
+        string $confidence = Issue::HEURISTIC,
+        ?string $path = null,
+        ?int $line = null,
+    ): void {
+        $issues[] = new Issue(
+            $severity,
+            $message,
+            'SessionSecurityCheck',
+            self::RULE_ID,
+            $confidence,
+            self::RECOMMENDATION,
+            $path,
+            $line,
+        );
     }
 }

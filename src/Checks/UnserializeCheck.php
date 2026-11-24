@@ -3,7 +3,6 @@
 namespace Aquilinoflores\PhpSecCheck\Checks;
 
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 use Aquilinoflores\PhpSecCheck\Scan\PhpFunctionCallScanner;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -18,6 +17,9 @@ use SplFileInfo;
  */
 class UnserializeCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-SRC-040';
+
+    public const RECOMMENDATION = 'Decode structured data with json_decode(). If unserialize() has to stay, pass allowed_classes => false and never feed it a request value.';
     /** @var list<string> */
     public const FUNCTIONS = ['unserialize', 'maybe_unserialize'];
 
@@ -40,11 +42,7 @@ class UnserializeCheck implements CheckInterface
     {
         $issues = [];
 
-        echo "[UNSERIALIZE]\n";
-
         if ($projectRoot === '' || !is_dir($projectRoot)) {
-            Output::info('No project root to scan for unserialize() usage.');
-            echo "\n";
             return $issues;
         }
 
@@ -89,11 +87,6 @@ class UnserializeCheck implements CheckInterface
             }
         }
 
-        if ($issues === []) {
-            Output::ok('No unserialize() usage detected in application source.');
-        }
-
-        echo "\n";
         return $issues;
     }
 
@@ -182,8 +175,13 @@ class UnserializeCheck implements CheckInterface
      */
     private function add(array &$issues, string $severity, string $message): void
     {
-        $issue = new Issue($severity, $message, 'UnserializeCheck');
-        $issues[] = $issue;
-        Output::issue($issue);
+        $issues[] = new Issue(
+            $severity,
+            $message,
+            'UnserializeCheck',
+            self::RULE_ID,
+            $severity === Issue::CRITICAL ? Issue::LIKELY : Issue::HEURISTIC,
+            self::RECOMMENDATION,
+        );
     }
 }

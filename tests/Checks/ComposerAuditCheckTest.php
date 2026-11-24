@@ -46,23 +46,14 @@ class ComposerAuditCheckTest extends TestCase
         $this->assertEmpty($result);
     }
 
-    public function test_outputs_info_when_no_composer_lock(): void
+    public function test_prints_nothing_when_no_composer_lock(): void
     {
         ob_start();
-        $this->check->run($this->tempDir);
+        $result = $this->check->run($this->tempDir);
         $output = ob_get_clean();
 
-        $this->assertStringContainsString('No composer.lock found', $output);
-        $this->assertStringContainsString('Skipping', $output);
-    }
-
-    public function test_output_contains_dependencies_header(): void
-    {
-        ob_start();
-        $this->check->run($this->tempDir);
-        $output = ob_get_clean();
-
-        $this->assertStringContainsString('[COMPOSER DEPENDENCIES]', $output);
+        $this->assertSame('', $output);
+        $this->assertEmpty($result);
     }
 
     public function test_runs_audit_when_composer_lock_exists(): void

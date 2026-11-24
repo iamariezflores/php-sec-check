@@ -6,7 +6,6 @@ use Aquilinoflores\PhpSecCheck\Checks\CheckInterface;
 use Aquilinoflores\PhpSecCheck\Git\GitStatus;
 use Aquilinoflores\PhpSecCheck\Git\GitWorkingTree;
 use Aquilinoflores\PhpSecCheck\Issue;
-use Aquilinoflores\PhpSecCheck\Output;
 use FilesystemIterator;
 use InvalidArgumentException;
 use RecursiveDirectoryIterator;
@@ -25,6 +24,9 @@ use SplFileInfo;
  */
 class EnvCredentialsCheck implements CheckInterface
 {
+    public const RULE_ID = 'PSC-SEC-001';
+
+    public const RECOMMENDATION = 'Rotate the exposed secret. Keep live values in an untracked env file outside the document root, and keep templates and committed source free of real credentials.';
     private const RUNTIME_ENV_FILES = [
         '.env',
         '.env.local',
@@ -125,21 +127,10 @@ class EnvCredentialsCheck implements CheckInterface
         $git    = $this->git ?? new GitWorkingTree($projectRoot);
         $keys   = $this->sensitiveKeys($projectRoot);
 
-        echo "[ENV CREDENTIALS]\n";
-
         $this->checkProjectRootDocumentRoot($projectRoot, $issues);
         $this->checkEnvContents($projectRoot, $keys, $issues);
         $this->scanTree($projectRoot, $git, $keys, $issues);
 
-        if (empty($issues)) {
-            if (is_file($projectRoot . '/.env')) {
-                Output::ok('Sensitive values in .env look like normal local configuration. No tracked or web-accessible env files, hardcoded secrets, or committed private keys detected.');
-            } else {
-                Output::info('No .env file found. No leaked templates, web-accessible env files, hardcoded secrets, or committed private keys detected.');
-            }
-        }
-
-        echo "\n";
         return $issues;
     }
 
@@ -856,8 +847,13 @@ class EnvCredentialsCheck implements CheckInterface
      */
     private function add(array &$issues, string $severity, string $message): void
     {
-        $issue = new Issue($severity, $message, 'EnvCredentialsCheck');
-        $issues[] = $issue;
-        Output::issue($issue);
+        $issues[] = new Issue(
+            $severity,
+            $message,
+            'EnvCredentialsCheck',
+            self::RULE_ID,
+            $severity === Issue::CRITICAL ? Issue::CONFIRMED : Issue::HEURISTIC,
+            self::RECOMMENDATION,
+        );
     }
 }
